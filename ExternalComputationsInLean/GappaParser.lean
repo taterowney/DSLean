@@ -24,8 +24,8 @@ open Std.Internal
 theorem conv1  {x : Real} {y : Int} (hy : y ≥ 0) : x^y = x^(Int.toNat y) := by
   sorry
 
-macro "tac" : tactic => `(tactic| try decide; try simp_all <;> grind; try grind; try sorry)
--- macro "tac" : tactic => `(tactic| sorry)
+-- macro "tac" : tactic => `(tactic| try decide; try simp_all <;> grind; try grind; try sorry)
+macro "tac" : tactic => `(tactic| sorry)
 
 
 declare_syntax_cat external
