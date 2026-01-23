@@ -9,6 +9,7 @@ import Lean.Parser.Command
 import Lean.Parser.Syntax
 import Lean.Parser.Term
 
+import ExternalComputationsInLean.LeanToExternal.Basic
 import ExternalComputationsInLean.Utils.Syntax
 
 
@@ -17,9 +18,56 @@ open Qq
 open Std.Internal.Parsec Std.Internal.Parsec.String
 open Std.Internal Parser Command Syntax Quote
 
+/-- By default, we try to make everything as left-associative as possible, so defining things like function application doesn't interfere with other syntax that has two `Syntax.cat`s in a row. -/
+def addPrecedences (syntaxPatterns : Array Syntax) (options : ExternalEquivalenceOptions) : (Array Syntax) :=
+  let startsWithAtom := match syntaxPatterns[0]? with
+    | some (.node _ `Lean.Parser.Syntax.atom _) => true
+    | _ => false
+
+  let hasSeparators := syntaxPatterns.size > 1 && syntaxPatterns[1:].any fun p =>
+    match p with
+    | .node _ `Lean.Parser.Syntax.atom _ => true
+    | _ => false
+
+  syntaxPatterns.zipIdx.map fun (p, i) =>
+    match p with
+    | .node info k args =>
+      match k with
+      | `Lean.Parser.Syntax.cat =>
+        let catDecl := args[0]?.getD (mkIdent .anonymous |>.raw)
+        if [.anonymous, `ident, `num, `str].contains catDecl.getId then -- Don't add precedences to things that don't like them
+          p
+        else
+          let prec := if startsWithAtom && hasSeparators then "60" else -- If it's nicely interspersed with atoms, just keep the precedences normal
+            if !options.rightAssociative then -- If it's weird and (by default) left associative, then assign everything except the first to higher precedence, so that leading `Syntax.cat`s don't screw up other patterns
+              if i == 0 then "60" else "61"
+            else
+              if i == 0 then "61" else "60" -- If right associative, make it heterogenous the other way around
+          let newArgs := args.push
+            (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default prec)])])])
+          .node info k newArgs
+      | _ => p
+    | x => x
+-- def addPrecedences (syntaxPatterns : Array Syntax) : (Array Syntax) :=
+--   syntaxPatterns.zipIdx.map fun (p, i) =>
+--     match p with
+--     | .node info k args =>
+--       match k with
+--       | `Lean.Parser.Syntax.cat =>
+--         let catDecl := args[0]?.getD (mkIdent .anonymous |>.raw)
+--         if [.anonymous, `ident, `num, `str].contains catDecl.getId then -- Don't add precedences to things that don't like them
+--           p
+--         else
+--           let prec := if i == 0 then "60" else "61"
+--           let newArgs := args.push
+--             (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default prec)])])])
+--           .node info k newArgs
+--       | _ => p
+--     | x => x
+
 
 /-- Creates a custom syntax declaration based on the patterns given; identifiers are assumed to refer to bound variable names not syntax categories. Lots borrowed from `elabSyntax` function in `Lean.Elab.Syntax` -/
-def declareExternalSyntax (cat : Name) (patterns : Array Syntax) : CommandElabM (SyntaxNodeKind × List Name × List Name) := do
+def declareExternalSyntax (cat : Name) (patterns : Array Syntax) (options : ExternalEquivalenceOptions) : CommandElabM (SyntaxNodeKind × List Name × List Name) := do
   let mut syntaxParts : Array Syntax := #[]
   let mut variableNames : List Name := []
   let mut binderNames : List Name := []
@@ -45,12 +93,12 @@ def declareExternalSyntax (cat : Name) (patterns : Array Syntax) : CommandElabM 
     | x => throwError m!"Unsupported syntax part: {x}"
 
 
+  syntaxParts := addPrecedences syntaxParts options
   let syntaxParser := mkNullNode syntaxParts
   let (val, lhsPrec?) ← runTermElabM fun _ => Term.toParserDescr syntaxParser cat
 
-  -- Dummy variables for now
   let prio := 0
-  let prec := 1024
+  let prec := 60
 
 
   let name ← addMacroScopeIfLocal (← liftMacroM <| mkNameFromParserSyntax cat syntaxParser) default
@@ -68,6 +116,7 @@ def declareExternalSyntax (cat : Name) (patterns : Array Syntax) : CommandElabM 
     `(@[$attrInstances,*] meta def $declName:ident : Lean.TrailingParserDescr :=
         ParserDescr.trailingNode $(quote stxNodeKind) $(quote prec) $(quote lhsPrec) $val)
   else
+    let prec := 1024
     `(@[$attrInstances,*] meta def $declName:ident : Lean.ParserDescr :=
         ParserDescr.node $(quote stxNodeKind) $(quote prec) $val)
 

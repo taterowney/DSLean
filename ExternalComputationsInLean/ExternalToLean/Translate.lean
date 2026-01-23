@@ -13,7 +13,7 @@ import Lean.Elab.Syntax
 
 import ExternalComputationsInLean.Utils.Syntax
 import ExternalComputationsInLean.Utils.Datatypes
-import ExternalComputationsInLean.LeanToExternal.Basic
+import ExternalComputationsInLean.LeanToExternal.Main
 
 open Lean Meta Tactic Elab Meta Term Tactic Expr Command
 open Qq
@@ -59,15 +59,10 @@ partial def Lean.Expr.printdbg (e : Expr) : String :=
 
 
 
-
-partial def makeMVarsDependent (e : Expr) (mvarIds : List MVarId) : TermElabM Expr := do
-  let ⟨e', _⟩ ← go e mvarIds []
-  -- logInfo m!"Original: {e} ({e.printdbg})"
-  -- logInfo m!"New: {e'} ({e'.printdbg})"
-  unless ← isDefEqGuarded e e' do
-    throwError "Internal assertion failed: makeMVarsDependent couldn't reconstruct expression properly"
-  return e
-where go : Expr → List MVarId → List Expr → TermElabM (Expr × List MVarId) := fun e mvarIds binderTypes =>
+partial def makeMVarsDependent (e : Expr) (mvarIds : List MVarId) : TermElabM (Expr × Std.HashMap MVarId Expr) := do
+  let ⟨e', _, updatedMVars⟩ ← go e mvarIds {} []
+  return (e', updatedMVars)
+where go : Expr → List MVarId → Std.HashMap MVarId Expr → List Expr → TermElabM (Expr × List MVarId × Std.HashMap MVarId Expr) := fun e mvarIdsRemaining newMVarIds binderTypes =>
 do
   match e with
   | .mvar id =>
@@ -83,56 +78,64 @@ do
         match depth with
         | 0 => mvar
         | _ => addBVars (Expr.app mvar (Expr.bvar (depth - 1))) (depth - 1)
+      -- logInfo m!"New expression: {addBVars (← mkFreshExprMVar (some (← mkMVarType binderTypes))) binderTypes.length}"
 
-      return (addBVars (← mkFreshExprMVar (some (← mkMVarType binderTypes))) binderTypes.length, mvarIds.filter (fun mid => mid != id))
+      let new := addBVars (← mkFreshExprMVar (some (← mkMVarType binderTypes))) binderTypes.length
+
+      return (new, mvarIdsRemaining.filter (fun mid => mid != id), newMVarIds.insert id new)
     else
-      return (e, mvarIds)
+      return (e, mvarIdsRemaining, newMVarIds)
   | .lam n ty body info =>
-    let (ty', mvarIds') ← go ty mvarIds binderTypes
-    let (body', mvarIds'') ← go body mvarIds' (ty' :: binderTypes)
-    return (.lam n ty' body' info, mvarIds'')
+    let (ty', mvarIdsRemaining', newMVarIds') ← go ty mvarIdsRemaining newMVarIds binderTypes
+    let (body', mvarIdsRemaining'', newMVarIds'') ← go body mvarIdsRemaining' newMVarIds' (ty' :: binderTypes)
+    -- logInfo m!"Body is {body'}"
+    return (.lam n ty' body' info, mvarIdsRemaining'', newMVarIds'')
   | .forallE n ty body info =>
-    let (ty', mvarIds') ← go ty mvarIds binderTypes
-    let (body', mvarIds'') ← go body mvarIds' (ty' :: binderTypes)
-    return (.forallE n ty' body' info, mvarIds'')
+    let (ty', mvarIdsRemaining', newMVarIds') ← go ty mvarIds newMVarIds binderTypes
+    let (body', mvarIdsRemaining'', newMVarIds'') ← go body mvarIdsRemaining' newMVarIds' (ty' :: binderTypes)
+    return (.forallE n ty' body' info, mvarIdsRemaining'', newMVarIds'')
   | .letE n ty val body info =>
-    let (ty', mvarIds') ← go ty mvarIds binderTypes
-    let (val', mvarIds'') ← go val mvarIds' binderTypes
-    let (body', mvarIds''') ← go body mvarIds'' (ty' :: binderTypes)
-    return (.letE n ty' val' body' info, mvarIds''')
+    let (ty', mvarIds', newMVarIds') ← go ty mvarIds newMVarIds binderTypes
+    let (val', mvarIds'', newMVarIds'') ← go val mvarIds' newMVarIds' binderTypes
+    let (body', mvarIds''', newMVarIds''') ← go body mvarIds'' newMVarIds'' (ty' :: binderTypes)
+    return (.letE n ty' val' body' info, mvarIds''', newMVarIds''')
   | .app f a =>
-    let (f', mvarIds') ← go f mvarIds binderTypes
-    let (a', mvarIds'') ← go a mvarIds' binderTypes
-    return (.app f' a', mvarIds'')
+    let (f', mvarIds', newMVarIds') ← go f mvarIds newMVarIds binderTypes
+    let (a', mvarIds'', newMVarIds'') ← go a mvarIds' newMVarIds' binderTypes
+    return (.app f' a', mvarIds'', newMVarIds'')
   | .mdata md e' =>
-    let (e'', mvarIds') ← go e' mvarIds binderTypes
-    return (.mdata md e'', mvarIds')
+    let (e'', mvarIds', newMVarIds') ← go e' mvarIds newMVarIds binderTypes
+    return (.mdata md e'', mvarIds', newMVarIds')
   | .proj n idx struct =>
-    let (struct', mvarIds') ← go struct mvarIds binderTypes
-    return (.proj n idx struct', mvarIds')
-  | _ => return (e, mvarIds)
+    let (struct', mvarIds', newMVarIds') ← go struct mvarIds newMVarIds binderTypes
+    return (.proj n idx struct', mvarIds', newMVarIds')
+  | _ => return (e, mvarIdsRemaining, newMVarIds)
+
 
 
 partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e : Expr) (depth := 0) : TermElabM String := do
-  if depth > 10000 then
+  if depth > 1000 then
     throwError m!"Exceeded maximum recursion depth when translating expression {e}. There's probably an infinite loop in the DSL somewhere."
 
   for pat in patterns do
     match pat.exprPattern with
     | .postponed _ => continue
     | .eager p =>
-      let (_, _, pat_expr, blankMap) ← p.unpackExpr
+      let (mvars, _, pat_expr, blankMap) ← p.unpackExpr
+      let (pat_expr, new_mvars) ← makeMVarsDependent pat_expr (mvars.toList.map (fun mv => mv.mvarId!)) -- When reloading metavariables from their abstracted form, they may not be able to depend on binders around them, so we make each one maximally dependent manually
+      let blankMap := Std.HashMap.ofList <| ← blankMap.toList.mapM (m := TermElabM) (fun (id, n) => do (match new_mvars.get? id with | some newId => pure (newId, n) | none => throwError "Internal assertion failed: makeMVarsDependent didn't specify what it replaced all the metavariables with")) -- Update the blank map to use the new metavariable IDs
 
-      if pat.stxNodeKind == (externalNumKind (mkIdent cat)) then -- TODO: nat? seems to malfunction randomly
+      if pat.stxNodeKind == (externalNumKind (mkIdent cat)) then
         if e.nat?.isSome || e.isRawNatLit then
           return (← PrettyPrinter.ppExpr e).pretty -- Special case: external number literals
         else
           continue
 
       else
-      -- logInfo m!"Trying pattern {pat_expr.printdbg} for expression {e.printdbg}"
+      logInfo m!"Trying pattern {pat_expr} for expression {e}"
       if (← isDefEqGuarded pat_expr e) then
-        let filledBlanks ← blankMap.keys.mapM (fun id => do translateExpr cat patterns (← instantiateMVars (Expr.mvar id)) (depth + 1))
+        logInfo m!"Matched! Pattern is now {← instantiateMVars pat_expr}"
+        let filledBlanks ← blankMap.keys.mapM (fun e => do translateExpr cat patterns (← Core.betaReduce (← instantiateMVars e)) (depth + 1)) -- TODO: for now, we betaReduce everything to make dependent mvars with binders applied not appear as new `fun`s. However, there might be a case where the user doesn't want this beta reduction to happen to their own arguments. Maybe a way to only beta-reduce certain arguments?
         let filledMap := Std.HashMap.ofList (blankMap.values.zip filledBlanks)
 
         let mut result := ""

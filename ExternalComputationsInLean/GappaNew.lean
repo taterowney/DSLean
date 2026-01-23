@@ -22,14 +22,16 @@ injective external Gappa_input where
   x "in" y <== x ∈ y
   x "<=" y <== x ≤ y
   x "=" y <== x = y
+  -- $x "=" $x "->" rest <== ∀ x, rest
 
 -- noncomputable abbrev toReal (x) : Real := OfNat.ofNat x
-macro "tac" : tactic => `(tactic| try decide; try simp_all <;> grind; try grind; try sorry)
+-- macro "tac" : tactic => `(tactic| try decide; try simp_all <;> grind; try grind; try sorry)
+macro "tac" : tactic => `(tactic| sorry)
 
 
 
 surjective external Gappa_output (numberCast := Int.ofNat) where
-  x "->" y   ==> x → y
+  x "->" y   ==> x → y; +rightAssociative
   x "/\\" y  ==> x ∧ y
   x "\\/" y  ==> x ∨ y
   "not" x    ==> ¬ x
@@ -65,6 +67,38 @@ surjective external Gappa_output (numberCast := Int.ofNat) where
 
 
 
+
+-- surjective external Gappa_output (numberCast := Int.ofNat) where
+
+--   "Gappa.Gappa_definitions.Float2" x y         ==> (IntCast.intCast x : Real) * ((2:Real) ^ (y:Int))
+--   x y ==> (id ∘ x) y
+--   "let" $n ":=" val "in" rest         ==> let n := val; rest
+
+--   "a" ==> (1:Int)
+-- #eval parseExternal `Gappa_output "Gappa.Gappa_definitions.Float2 a a"
+
+
+
+
+-- declare_syntax_cat test
+-- syntax (name:=test_a) "a" : test
+-- syntax:60 (name:=test_b) "Gappa.Gappa_definitions.Float2" test:61 test:61 : test
+-- syntax:60 (name:=test_c) test:60 test:61 : test
+-- syntax:60 "a" num "b" test:61 "c" test:61 : test
+-- syntax:60 test:61 "->" test:60 : test
+-- syntax:60 "let" ident ":=" test:60 "in" test:60 : test
+
+-- #eval parseExternal `test "let n := a -> a -> a a in
+-- a"
+
+
+
+
+
+
+
+
+
 partial def preprocess (s : String) : IO String :=
   -- let escaped_comments := s.replace "(*" "(*\"" |>.replace "*)" "\"*)"
   let escaped_comments := s.replace "(*" "/-" |>.replace "*)" "-/"
@@ -88,9 +122,9 @@ open Lean Meta Elab Term Command Tactic in
 elab "gappa" : tactic => do
   let goal ← getMainGoal
   let typ ← instantiateMVars (← goal.getType)
-  logInfo m!"Current goal: {typ}"
+  -- logInfo m!"Current goal: {typ}"
   let formatted ← toExternal `Gappa_input typ
-  logInfo m!"{formatted}"
+  logInfo m!"Formatted: {formatted}"
   IO.FS.writeFile "/Users/trowney/Desktop/Code/gappa/gappa/lean_test.g" s!"\{{formatted}}"
   let res ← IO.Process.run {
     cmd := "/Users/trowney/Desktop/Code/gappa/gappa/src/gappa",
@@ -98,14 +132,15 @@ elab "gappa" : tactic => do
     stdin := .piped, stdout := .piped, stderr := .piped
   }
   let input ← preprocess res
-  logInfo m!"Gappa output after preprocessing: {input}"
+  -- logInfo m!"Gappa output after preprocessing: {input}"
   let proof ← processExternal `Gappa_output input
   Meta.check proof
-  logInfo m!"Parsed proof: {proof}"
-  logInfo m!"Proof type: {← inferType proof}"
-  logInfo m!"Goal type: {typ}"
+  -- logInfo m!"Parsed proof: {proof}"
+  -- logInfo m!"Proof type: {← inferType proof}"
+  -- logInfo m!"Goal type: {typ}"
   let proof ← Meta.whnf proof
   let proof ← Core.betaReduce proof
+  -- logInfo m!"Final proof: {proof}"
 
   let newhyp : Hypothesis := {
     userName := `h_gappa,
@@ -125,13 +160,10 @@ elab "gappa" : tactic => do
 
 
 
--- example : √2 * 1000 ≤ 1415 := by
+-- theorem test : √2 * 1000 ≤ 1415 := by
 --   gappa
 
+-- #print test
 
-
--- open Lean Meta in
--- #eval do
---   let expr ← processExternal `Gappa_output "let f1 := Gappa.Gappa_definitions.Float2 (1415) (0) in
--- 0"
---   logInfo m!"Elaborated expression: {expr}"
+-- example (y : ℝ) :  y * (1-y) ≤ 1/4 := by
+--   gappa
