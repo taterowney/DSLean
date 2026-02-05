@@ -1,5 +1,5 @@
-import ExternalComputationsInLean.LeanToExternal.Main
-import ExternalComputationsInLean.ExternalToLean.Basic
+import DSLean.ExternalToLean.Main
+import DSLean.LeanToExternal.Basic
 import Mathlib.Order.Interval.Set.Defs
 import Mathlib.Data.Nat.Basic
 

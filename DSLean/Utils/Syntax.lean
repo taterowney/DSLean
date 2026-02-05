@@ -128,9 +128,9 @@ where
     Potential problem: if elaboration of subterms is delayed the order the new metavariables are created may not match the order they
     appear in the `.lean` file. We should tell users to prefer tagged goals.
     -/
-    let newMVarIds ← sortMVarIdsByIndex newMVarIds.toList
+    let newMVarIds ← sortMVarIdsByIndex newMVarIds
     -- tagUntaggedGoals parentTag tagSuffix newMVarIds
-    return (val, newMVarIds)
+    return (val, newMVarIds.toList)
 
 
 def elabTermWithHoles (stx : Syntax) (expectedType? : Option Expr) (tagSuffix : Name) (allowNaturalHoles := false) : TermElabM (Expr × List MVarId) := do

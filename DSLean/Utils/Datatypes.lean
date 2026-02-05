@@ -1,5 +1,5 @@
 import Lean
-import ExternalComputationsInLean.Utils.Pattern
+import DSLean.Utils.Pattern
 open Lean Meta Elab Command
 
 structure ExternalEquivalenceKey where

@@ -4,16 +4,16 @@ import Std.Internal.Parsec.Basic
 import Std.Internal.Parsec.String
 import Qq.Macro
 import Lean.Elab.Command
-import ExternalComputationsInLean.Utils.Pattern
+import DSLean.Utils.Pattern
 import Lean.Parser.Command
 import Lean.Parser.Syntax
 import Lean.Parser.Term
 import Lean.Elab.Syntax
 
 
-import ExternalComputationsInLean.Utils.Syntax
-import ExternalComputationsInLean.Utils.Datatypes
-import ExternalComputationsInLean.LeanToExternal.Main
+import DSLean.Utils.Syntax
+import DSLean.Utils.Datatypes
+import DSLean.ExternalToLean.Main
 
 open Lean Meta Tactic Elab Meta Term Tactic Expr Command
 open Qq

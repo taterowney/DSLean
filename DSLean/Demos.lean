@@ -1,5 +1,5 @@
-import ExternalComputationsInLean.GappaNew
-import ExternalComputationsInLean.Desolve
+import DSLean.GappaNew
+import DSLean.Desolve
 set_option warn.sorry false
 open Lean Meta Qq
 

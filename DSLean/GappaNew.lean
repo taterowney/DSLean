@@ -1,4 +1,4 @@
-import ExternalComputationsInLean.Command
+import DSLean.Command
 import Mathlib.Algebra.Order.Round
 import Mathlib.Data.Real.Basic
 import Mathlib.Data.Real.Sqrt
@@ -96,24 +96,18 @@ surjective external Gappa_output (numberCast := Int.ofNat) where
   "proj1" x  ==> And.left x
   "proj2" x  ==> And.right x
 
-
+-- TODO: this doesn't work at all anymore :(
 partial def preprocess (s : String) : IO String :=
   let escaped_comments := s.replace "(*" "/-" |>.replace "*)" "-/"
   let rec loop (input : String) (acc : String := "") : String :=
     if input = "" then acc else
     if input.dropWhile (· == ' ') |>.startsWith "Gappa.Gappa_tree.simplify" then
-      loop (input.dropWhile (· != '\n') |>.drop 1) (acc ++ "Gappa.Gappa_tree.simplify _ in ")
+      loop (input.dropWhile '\n' |>.toString.drop 1).toString (acc ++ "Gappa.Gappa_tree.simplify _ in ")
     else
       let line := input.takeWhile (· != '\n')
-      loop (input.dropWhile (· != '\n') |>.drop 1) (acc ++ line ++ "\n")
+      loop (input.dropWhile '\n' |>.toString.drop 1).toString (acc ++ line ++ "\n")
   let escaped := loop escaped_comments
-  IO.Process.run {
-    cmd := "python3",
-    args := #[s!"/Users/trowney/Desktop/Code/gappa/gappa/preprocess.py", escaped],
-    stdin := .piped,
-    stdout := .piped,
-    stderr := .piped
-  }
+  return escaped
 
 open Lean Meta Elab Term Command Tactic in
 elab "gappa" : tactic => do

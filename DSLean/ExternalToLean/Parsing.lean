@@ -4,19 +4,20 @@ import Std.Internal.Parsec.Basic
 import Std.Internal.Parsec.String
 import Qq.Macro
 import Lean.Elab.Command
-import ExternalComputationsInLean.Utils.Pattern
+import DSLean.Utils.Pattern
 import Lean.Parser.Command
 import Lean.Parser.Syntax
 import Lean.Parser.Term
 
-import ExternalComputationsInLean.LeanToExternal.Basic
-import ExternalComputationsInLean.Utils.Syntax
+import DSLean.ExternalToLean.Basic
+import DSLean.Utils.Syntax
 
 
 open Lean Meta Tactic Elab Meta Term Tactic Expr Command
 open Qq
 open Std.Internal.Parsec Std.Internal.Parsec.String
 open Std.Internal Parser Command Syntax Quote
+open Lean.Elab.Command
 
 /-- By default, we try to make everything as left-associative as possible, so defining things like function application doesn't interfere with other syntax that has two `Syntax.cat`s in a row. -/
 def addPrecedences (syntaxPatterns : Array Syntax) (options : ExternalEquivalenceOptions) : (Array Syntax) :=
@@ -48,22 +49,43 @@ def addPrecedences (syntaxPatterns : Array Syntax) (options : ExternalEquivalenc
           .node info k newArgs
       | _ => p
     | x => x
--- def addPrecedences (syntaxPatterns : Array Syntax) : (Array Syntax) :=
---   syntaxPatterns.zipIdx.map fun (p, i) =>
---     match p with
---     | .node info k args =>
---       match k with
---       | `Lean.Parser.Syntax.cat =>
---         let catDecl := args[0]?.getD (mkIdent .anonymous |>.raw)
---         if [.anonymous, `ident, `num, `str].contains catDecl.getId then -- Don't add precedences to things that don't like them
---           p
---         else
---           let prec := if i == 0 then "60" else "61"
---           let newArgs := args.push
---             (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default prec)])])])
---           .node info k newArgs
---       | _ => p
---     | x => x
+
+
+/-- From Lean/Elab/Syntax.lean -/
+private partial def mkNameFromParserSyntax (catName : Name) (stx : Syntax) : MacroM Name := do
+  mkUnusedBaseName <| Name.mkSimple <| appendCatName <| visit stx ""
+where
+  visit (stx : Syntax) (acc : String) : String :=
+    match stx.isStrLit? with
+    | some val => acc ++ (val.trimAscii.copy.map fun c => if c.isWhitespace then '_' else c).capitalize
+    | none =>
+      match stx with
+      | Syntax.node _ k args =>
+        if k == ``Lean.Parser.Syntax.cat then
+          acc ++ "_"
+        else if k == ``Lean.Parser.Syntax.unicodeAtom && args.size > 1 then
+          -- in `unicode(" ≥ ", " >= ")` only visit `" ≥ "`.
+          visit args[1]! acc
+        else
+          args.foldl (init := acc) fun acc arg => visit arg acc
+      | Syntax.ident ..    => acc
+      | Lean.Syntax.atom ..     => acc
+      | Syntax.missing     => acc
+
+  appendCatName (str : String) :=
+    match catName with
+    | .str _ s => s ++ str
+    | _ => str
+
+/--
+Add macro scope to `name` if it does not already have them, and `attrKind` is `local`. From Lean/Elab/Syntax.lean
+-/
+private def addMacroScopeIfLocal [MonadQuotation m] [Monad m] (name : Name) (attrKind : Syntax) : m Name := do
+  if isLocalAttrKind attrKind && !name.hasMacroScopes then
+    MonadQuotation.addMacroScope name
+  else
+    return name
+
 
 
 /-- Creates a custom syntax declaration based on the patterns given; identifiers are assumed to refer to bound variable names not syntax categories. Lots borrowed from `elabSyntax` function in `Lean.Elab.Syntax` -/

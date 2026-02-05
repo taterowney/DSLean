@@ -1,4 +1,4 @@
-import ExternalComputationsInLean.Command
+import DSLean.Command
 import Mathlib.Data.Nat.Basic
 import Mathlib.Data.Nat.Factorial.Basic
 import Mathlib.RingTheory.Congruence.Defs

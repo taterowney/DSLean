@@ -1,6 +1,6 @@
 import Lean
 import Qq.Macro
-import ExternalComputationsInLean.Utils.Syntax
+import DSLean.Utils.Syntax
 
 open Lean Elab Meta Term Expr
 open Qq
@@ -65,9 +65,11 @@ private inductive repeatReplaceIdentsOutput where
   | eager (e : Expr × List Name)
   | postponed (stx : Syntax)
 
+
 /-- A somewhat suspicious way of finding unbound identifiers, replacing them with holes, and returning their names, while leaving binders and bound variables in place. Expressions that need to be postponed don't go through this process; instead it just gives back their syntax. Adapted from `Lean.Elab.Term.withAutoBoundImplicit`. -/
 partial def repeatReplaceIdents (stx : Syntax) (expectedType? : Option Expr) : TermElabM (repeatReplaceIdentsOutput) := do
-  withReader (fun ctx => { ctx with autoBoundImplicit := true, autoBoundImplicits := {} }) do
+  let initCtx : AutoBoundImplicitContext := .mk true {}
+  withReader (fun ctx => { ctx with autoBoundImplicitContext := .some initCtx }) do
     let rec loop (s : Lean.Elab.Term.SavedState) (stx : Syntax) (expectedType? : Option Expr) : TermElabM (repeatReplaceIdentsOutput) := withIncRecDepth do
       checkSystem "auto-implicit"
       try

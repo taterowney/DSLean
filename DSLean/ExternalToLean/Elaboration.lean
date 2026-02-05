@@ -2,10 +2,11 @@ import Lean
 import Std.Internal.Parsec
 import Std.Internal.Parsec.Basic
 import Std.Internal.Parsec.String
+import Lean.Elab.AuxDef
 import Qq.Macro
 import Lean.Elab.Command
-import ExternalComputationsInLean.Utils.Pattern
-import ExternalComputationsInLean.LeanToExternal.Basic
+import DSLean.Utils.Pattern
+import DSLean.ExternalToLean.Basic
 import Lean.Parser.Command
 import Lean.Parser.Syntax
 import Lean.Parser.Term
@@ -13,17 +14,17 @@ import Lean.Elab.Syntax
 
 import Mathlib.Data.Real.Basic -- for definition of Reals
 
-import ExternalComputationsInLean.Utils.Syntax
-import ExternalComputationsInLean.Utils.Datatypes
+import DSLean.Utils.Syntax
+import DSLean.Utils.Datatypes
 
 open Lean Meta Tactic Elab Meta Term Tactic Expr Command
 open Qq
 
-
-
 open Lean.Syntax
 open Lean.Parser.Term hiding macroArg
 open Lean.Parser.Command
+open Lean.Elab.Command
+
 
 
 /-- Convert a `stx` node into a `macroArg` node for use in `expandMacroArg`. Identifiers, which are usually interpreted as parser categories, will instead be converted to the names of the bound variables, with the category being the supplied name (i.e. `x` => `x:mycategory`). -/
@@ -113,7 +114,7 @@ def declareExternalElaborator (kind : SyntaxNodeKind) (cat : Name) (patterns : A
   -- Full matcher definition. We register it as a `external_elab` attribute so it can be conveniently found later (without having to mess around at the meta level)
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef k):ident)
   let matcher_def : Syntax ← `(@[$attr]
-      aux_def elabRules $(mkIdent k) : ExternalElabSignature :=
+      public aux_def elabRules $(mkIdent k) : ExternalElabSignature :=
       fun stx _ => match stx with $alts:matchAlt* | _ => no_error_if_unused% throwUnsupportedSyntax)
 
   elabCommand matcher_def
@@ -139,7 +140,7 @@ def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurje
   let target : TSyntax `term := mkStrLit kindName.toString
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)
   let matcher_def : Syntax ← `(@[$attr]
-      aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
+      public aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
       fun stx _ => match stx.getArg 0 with | Syntax.ident _ _ _ _ => pure ( ( ⟨($target).toName⟩ : ExternalEquivalenceKey), ([] : List (Name × Syntax)), ([(`ident, stx.getArg 0)] : List (Name × Syntax)) ) | _ => no_error_if_unused% throwUnsupportedSyntax)
   elabCommand matcher_def
 
@@ -154,7 +155,7 @@ def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurje
   let target : TSyntax `term := mkStrLit kindName.toString
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)
   let matcher_def : Syntax ← `(@[$attr]
-      aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
+      public aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
       fun stx _ => pure ( ( ⟨($target).toName⟩ : ExternalEquivalenceKey), ([] : List (Name × Syntax)), ([] : List (Name × Syntax)) ))
   elabCommand matcher_def
 
@@ -169,6 +170,6 @@ def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurje
   let target : TSyntax `term := mkStrLit kindName.toString
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)
   let matcher_def : Syntax ← `(@[$attr]
-      aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
+      public aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
       fun stx _ => pure ( ( ⟨($target).toName⟩ : ExternalEquivalenceKey), ([] : List (Name × Syntax)), ([] : List (Name × Syntax)) ))
   elabCommand matcher_def
