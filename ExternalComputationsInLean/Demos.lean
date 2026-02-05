@@ -1,35 +1,80 @@
-import ExternalComputationsInLean.IntervalArith
-import Mathlib.Data.Real.Basic
-import Mathlib.Data.Real.GoldenRatio
+import ExternalComputationsInLean.GappaNew
+import ExternalComputationsInLean.Desolve
+set_option warn.sorry false
+open Lean Meta Qq
 
 
 
--- set_option warn.sorry false
 
 
 
--- -- Bounds on square roots
--- example : √2 * 1000 ≤ 1415 := by
+
+bijective external test_lang where
+  "true" <==> «True»
+  "false" <==> «False»
+  "not" x <==> ¬ x
+  x "and" y <==> x ∧ y
+  x "or" y <==> x ∨ y
+  x "implies" y <==> x → y
+
+#eval do logInfo m!"{← fromExternal `test_lang "not true and false implies true"}"
+
+#eval toExternal `test_lang (q(«True» ∧ «False» → «True»))
+
+
+
+
+
+
+
+
+
+
+
+
+/- `gappa` tactic: interval arithmetic -/
+
+
+-- theorem test_thm : √2 ∈ Set.Icc 1.414 1.4151 := by
+--   gappa
+-- #print test_thm
+
+-- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * (1-y) ∈ Set.Icc 0 0.5 := by
 --   gappa
 
--- example : √3 * 1024 ≤ 1774 := by
---   gappa
 
--- -- Bounding the golden ratio
--- open goldenRatio in
--- example : 16 ≤ φ * 10 ∧ φ * 10 ≤ 17 := by
---   unfold goldenRatio
---   constructor
---   · suffices (1 + √5) / 2 * 10 ≥ 16 by exact this
---     gappa
+-- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * y * y ∈ Set.Icc 0 1 := by
 --   gappa
 
 
 
-
--- variable (y : ℝ)
-
--- Bounds on a quadratic expression
--- Doesn't work yet because of some weird bug in the parser around anonymous functions. The translation and solving stage work just fine though...
--- example : y >= 0 ∧ y <= 1 → y * (1-y) * 3 <= 1 := by
+-- example (a b c : Real) : c ∈ Set.Icc (-0.3 : Real) (-0.1 : Real) ∧ (2 * a ∈ Set.Icc 3 4 -> b + c ∈ Set.Icc 1 2) ∧
+--   a - c ∈ Set.Icc 1.9 2.05 → b + 1 ∈ Set.Icc 2 3.5 := by
 --   gappa
+--   have := h_gappa c a b
+--   exact this
+
+
+-- Abstract, motivation, examples, implementation details, related work
+
+
+/- `desolve`: ordinary differential equations -/
+
+
+#print isODEsolution
+
+
+-- example : isODEsolution
+--   (fun x => fun y => deriv y x = 1)
+--   (fun C K1 K2 x => C + x) := by
+--   desolve
+
+-- example : isODEsolution
+--   (fun x => fun y => deriv y x + y x = 1)
+--   (fun C K1 K2 x => (C + Real.exp x) * (Real.exp (-x))) := by
+--   desolve
+
+-- example : isODEsolution
+--   (fun x => fun y => deriv (deriv y) x + 2 * deriv y x + y x = 0)
+--   (fun C K1 K2 x => (K2 * x + K1 ) * Real.exp (-x)) := by
+--   desolve

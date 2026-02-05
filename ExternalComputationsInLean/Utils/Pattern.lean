@@ -179,7 +179,6 @@ def Lean.Syntax.toPattern (stx : Syntax) (expectedType? : Option Expr) (varNames
 
     match ← repeatReplaceIdents stx expectedType? with
     | .eager (e, pat_varNames) =>
-      -- logInfo m!"Pattern after replacing idents: {e}"
       let paired ← pairMVarNames e
 
       unless pat_varNames.isPerm paired.values do
@@ -229,9 +228,12 @@ where
 
           let updatedLCtx ← getLCtx
           setMCtx <| (← getMCtx).modifyExprMVarLCtx id (fun _ => updatedLCtx) -- TODO: This is probably unsafe in some situations; however, I can't figure out a nice way around it without refactoring everything. The mvar in question must be able to depend on the (newly created) fvars for `isDefEq` to work unfortunately. We could fix this by postponing the creation of the abstracted mvars until after the corresponding binder is created.
+          let ty := (← id.getDecl).type
+          if ty.isMVar then
+            setMCtx <| (← getMCtx).modifyExprMVarLCtx ty.mvarId! (fun _ => updatedLCtx) -- TODO: what if ty isn't an mvar but has mvars somewhere else?
 
           unless ← isDefEq e target do
-            throwError m!"Type mismatch when filling in blank '{name}': expected to unify with {e}, got {target}"
+            throwError m!"Type mismatch when filling in blank '{name}': expected to unify with {e}, got {target}; current vars are {self.getVars}"
         catch e =>
           throwError m!"Type mismatch when filling in blank '{name}': {e.toMessageData}"
       | _ => pure ()
@@ -246,8 +248,9 @@ where
     | .lam n t b bi =>
       let binderName ← try let x ← identBlankContinuation n; pure x catch _ => pure n
       let binderType ← go t mvars
-      withLocalDecl binderName bi binderType fun binderExpr => do
+      let out ← withLocalDecl binderName bi binderType fun binderExpr => do
         instantiateMVars <| ← mkLambdaFVars #[binderExpr] (← go b mvars) (binderInfoForMVars := bi)
+      return out
     | .forallE n t b bi => do
       let binderName ← try let x ← identBlankContinuation n; pure x catch _ => pure n
       let binderType ← go t mvars
@@ -257,11 +260,6 @@ where
       let binderName ← try let x ← identBlankContinuation n; pure x catch _ => pure n
       let binderType ← go t mvars
       let valueExpr ← go v mvars
-
-      -- let typ ← inferType valueExpr
-      -- logInfo m!"Binder type: {binderType} ({t}), value type: {typ}"
-      -- unless ← isDefEq typ binderType do -- For some reason the `isDefEq`s elsewhere sometimes miss this required equivalence
-      --   throwError m!"Type mismatch in let-declaration for '{binderName}': expected {binderType}, got {typ}"
 
       withLetDecl binderName binderType valueExpr fun binderExpr => do
         let body ← go b mvars
@@ -273,7 +271,6 @@ where
       | some ldecl => return mkFVar ldecl.fvarId
       | none => throwError m!"Unknown identifier '{name}'"
     | _ => return e
-
 
 
 

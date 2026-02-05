@@ -11,6 +11,7 @@ import Lean.Parser.Syntax
 import Lean.Parser.Term
 import Lean.Elab.Syntax
 
+import Mathlib.Data.Real.Basic -- for definition of Reals
 
 import ExternalComputationsInLean.Utils.Syntax
 import ExternalComputationsInLean.Utils.Datatypes
@@ -120,11 +121,14 @@ def declareExternalElaborator (kind : SyntaxNodeKind) (cat : Name) (patterns : A
 
 @[inline] def externalIdentKind (cat : Ident) := Name.str cat.getId "process_ident"
 @[inline] def externalNumKind (cat : Ident) := Name.str cat.getId "process_num"
+@[inline] def externalScientificKind (cat : Ident) := Name.str cat.getId "process_scientific"
+
 
 
 /-- Add default elaborators common to every DSL. TODO: Scientific notation. Also since `num parsing is weird, right now it automatically treats them as Nats. Might be nice to parameterize this. -/
-def declareIdentifierElaborator (cat : Ident) (checkInjective? : Bool) (checkSurjective? : Bool) (castFn : Expr) : CommandElabM Unit := do
+def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurjective? : Bool) (castFn : Expr) : CommandElabM Unit := do
   -- using a syntax quotation like `(syntax:1024 ident : $cat) errors for some reason; construct manually
+  -- `(syntax:1024 (name := kindNamePlaceholder) ident : catPlaceholder)
   let kindName := externalIdentKind cat
   let identSyntaxDecl : TSyntax `command := .mk (Lean.Syntax.node default `Lean.Parser.Command.syntax #[(Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `Lean.Parser.Term.attrKind #[(Lean.Syntax.node default `null #[])]), (Lean.Syntax.atom default "syntax"), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default "1024")])])]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Command.namedName #[(Lean.Syntax.atom default "("), (Lean.Syntax.atom default "name"), (Lean.Syntax.atom default ":="), mkIdent kindName, (Lean.Syntax.atom default ")")])]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Syntax.cat #[(mkIdent `ident), (Lean.Syntax.node default `null #[])])]), (Lean.Syntax.atom default ":"), cat])
   elabCommand identSyntaxDecl -- identifiers are part of any DSL. How they are declared/managed is defined by the language in question.
@@ -141,11 +145,26 @@ def declareIdentifierElaborator (cat : Ident) (checkInjective? : Bool) (checkSur
 
 
   let kindName := externalNumKind cat
-  let identSyntaxDecl : TSyntax `command := .mk (Lean.Syntax.node default `Lean.Parser.Command.syntax #[(Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `Lean.Parser.Term.attrKind #[(Lean.Syntax.node default `null #[])]), (Lean.Syntax.atom default "syntax"), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default "1024")])])]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Command.namedName #[(Lean.Syntax.atom default "("), (Lean.Syntax.atom default "name"), (Lean.Syntax.atom default ":="), mkIdent kindName, (Lean.Syntax.atom default ")")])]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])])]), (Lean.Syntax.atom default ":"), cat])
-  elabCommand identSyntaxDecl
+  let numSyntaxDecl : TSyntax `command := .mk (Lean.Syntax.node default `Lean.Parser.Command.syntax #[(Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `Lean.Parser.Term.attrKind #[(Lean.Syntax.node default `null #[])]), (Lean.Syntax.atom default "syntax"), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default "1024")])])]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Command.namedName #[(Lean.Syntax.atom default "("), (Lean.Syntax.atom default "name"), (Lean.Syntax.atom default ":="), mkIdent kindName, (Lean.Syntax.atom default ")")])]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])])]), (Lean.Syntax.atom default ":"), cat])
+  elabCommand numSyntaxDecl
 
   let pat ← liftTermElabM <| (q(1) : Expr).toPattern
   addExternalEquivalence kindName cat.getId kindName pat #[.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])]] checkInjective? checkSurjective? (some castFn)
+
+  let target : TSyntax `term := mkStrLit kindName.toString
+  let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)
+  let matcher_def : Syntax ← `(@[$attr]
+      aux_def elabRules $(mkIdent kindName) : ExternalElabSignature :=
+      fun stx _ => pure ( ( ⟨($target).toName⟩ : ExternalEquivalenceKey), ([] : List (Name × Syntax)), ([] : List (Name × Syntax)) ))
+  elabCommand matcher_def
+
+
+  let kindName := externalScientificKind cat
+  let scientificSyntaxDecl : TSyntax `command := .mk <| (Lean.Syntax.node default `Lean.Parser.Command.syntax #[(Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `Lean.Parser.Term.attrKind #[(Lean.Syntax.node default `null #[])]), (Lean.Syntax.atom default "syntax"), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default "1024")])])]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Command.namedName #[(Lean.Syntax.atom default "("), (Lean.Syntax.atom default "name"), (Lean.Syntax.atom default ":="), (mkIdent kindName), (Lean.Syntax.atom default ")")])]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Syntax.cat #[(mkIdent `scientific), (Lean.Syntax.node default `null #[])])]), (Lean.Syntax.atom default ":"), cat])
+  elabCommand scientificSyntaxDecl
+
+  let pat ← liftTermElabM <| (q(1.0 : Real) : Expr).toPattern
+  addExternalEquivalence kindName cat.getId kindName pat #[.node default `Lean.Parser.Syntax.cat #[(mkIdent `scientific), (Lean.Syntax.node default `null #[])]] checkInjective? checkSurjective? -- TODO: casting functions for scientific too (and make the interface a little nicer)
 
   let target : TSyntax `term := mkStrLit kindName.toString
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)

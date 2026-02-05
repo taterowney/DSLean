@@ -2,18 +2,21 @@ import ExternalComputationsInLean.Command
 import Mathlib.Algebra.Order.Round
 import Mathlib.Data.Real.Basic
 import Mathlib.Data.Real.Sqrt
+import Mathlib.Analysis.SpecialFunctions.Exp
+import Mathlib.Analysis.SpecialFunctions.Log.Basic
+import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.Calculus.Deriv.Basic
 
-open Qq
+
+open Qq Lean Elab Term Command Tactic Meta
 
 
-injective external Sage_ODE where
-  ";x=var('" $x "\\');" rest <== ∀ (x : Real), rest
-  ";y=function('" $y "\\');" rest <== ∀ (y : Real → Real), rest
+injective external Sage_ODE_out where
+  "(" body ")" <== fun (x : Real) => body
+  "(" body ")" <== fun (y : Real → Real) => body
   "Integer(" x ")" <== (x : Int)
-  "desolve(" eq ",y)==" fn <== eq → fn
+  x "+" y "*0" <== (x : Real → Real) y
   "(" lhs ")" "-" "(" rhs ")" <== lhs = rhs -- Expects everything to total to 0
-  x "(" y ")" <== (x : Real → Real) y
 
   x "+" y <== x+y
   x "-" y <== x-y
@@ -21,7 +24,69 @@ injective external Sage_ODE where
   x "/" y <== x/y
   x "^" y <== x^y
   "diff(" fn "," var ")" <== deriv fn var
+  "-" x <== -(x:Real)
+  "e^" x <== Real.exp x
+  "log(" x ")" <== Real.log x
+  "sqrt(" x ")" <== Real.sqrt x
+  "sin(" x ")" <== Real.sin x
+  "cos(" x ")" <== Real.cos x
+  "tan(" x ")" <== Real.tan x
+
+surjective external Sage_ODE_in where
+  "{" inside "}" ==> fun (_C _K1 _K2 x : Real) => inside
+  x "+" y ==> x + y
+  x "-" y ==> x - y
+  x "*" y ==> x * y
+  x "/" y ==> x / y
+  x "^" y ==> x ^ y
+  "-" x ==> -(x:Real)
+  "e^" x ==> Real.exp x
+  "log(" x ")" ==> Real.log x
+  "sqrt(" x ")" ==> Real.sqrt x
+  "sin(" x ")" ==> Real.sin x
+  "cos(" x ")" ==> Real.cos x
+  "tan(" x ")" ==> Real.tan x
+  "(" x ")" ==> x
 
 
--- #eval toExternal `Sage_ODE q(∀ (x : Real), x=x)
--- #eval toExternal `Sage_ODE q(∀ (x : Real), ∀ (y : Real → Real), deriv y x + y x = 1 → y x = x + 1)
+def python_sage_path : String :=
+  "/usr/local/bin/sage"
+
+private axiom sage_sound :
+  ∀ (ode : Real → (Real → Real) → Prop)
+    (sage_out : Real → Real → Real → Real → Real)
+    (soln : Real → Real → Real → Real → Real),
+    sage_out = soln →
+    ∀ (y : Real → Real), (∀ x, ode x y) → ∃ C K1 K2, ∀ x, y x = soln C K1 K2 x
+
+def isODEsolution (ode : Real → (Real → Real) → Prop) (soln : Real → Real → Real → Real → Real) : Prop :=
+  ∀ (y : Real → Real), (∀ x, ode x y) → ∃ C K1 K2, ∀ x, y x = soln C K1 K2 x
+
+elab "desolve" : tactic =>
+  Lean.Elab.Tactic.withMainContext do
+    let target ← instantiateMVars (← (← getMainGoal).getType)
+    if !target.isAppOfArity ``isODEsolution 2 then
+      throwError "desolve tactic only works on goals of the form isODEsolution ode soln"
+    let ode := target.appFn!.appArg!
+    let soln := target.appArg!
+
+    let formatted := "x = var('x'); y = function('y')(x); print(desolve(" ++ (← toExternal `Sage_ODE_out ode) ++ ",y).simplify_full())"
+    let res ← IO.Process.run {
+      cmd := python_sage_path,
+      args := #["-c", formatted],
+      stdin := .piped, stdout := .piped, stderr := .piped
+    }
+
+    let out ← processExternal `Sage_ODE_in ("{" ++ res ++ "}")
+
+    let eq ← mkFreshExprMVar <| mkAppN (mkConst ``Eq [1]) #[q(Real → Real→ Real→ Real→ Real), soln, out]
+    let term := mkAppN q(sage_sound) #[ode, out, soln, eq]
+
+    let new ← (← getMainGoal).apply term
+    replaceMainGoal new
+
+    evalTactic (← `(tactic| try rfl; try congr <;> rfl ))
+
+-- TODO: fix associativity
+-- example : isODEsolution (fun x => fun y => deriv (deriv y) x + y x = 0) (fun C K1 K2 x => K2 * Real.cos x + K1 * Real.sin x) := by
+--   desolve

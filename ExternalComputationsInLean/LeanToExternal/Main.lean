@@ -24,7 +24,7 @@ open Std.Internal Parser Command Syntax Quote
 def initializeExternalCategory (cat : TSyntax `ident) (checkInjective? : Bool) (checkSujective? : Bool) (castFn : Expr) : CommandElabM Unit := do
   elabCommand (← `(declare_syntax_cat $cat))
 
-  declareIdentifierElaborator cat checkInjective? checkSujective? castFn
+  declareDefaultElaborators cat checkInjective? checkSujective? castFn
 
 
 
@@ -60,7 +60,6 @@ partial def synthTCMVarsIn (e : Expr) : MetaM Expr := do
     if !(← mvarId.isAssigned) then
       mvarId.withContext do
         let decl ← mvarId.getDecl
-        -- only attempt synthesis if the goal is a typeclass
         if (← Meta.isClass? decl.type).isSome then
           let inst ← Meta.synthInstance decl.type
           mvarId.assign inst
@@ -82,6 +81,21 @@ partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option E
         | _ => throwError m!"Internal assertion failed: malformed num syntax"
       | _ => throwError m!"Internal assertion failed: malformed num syntax"
     | _ => throwError m!"Internal assertion failed: malformed num syntax"
+
+  if input.getKind == (externalScientificKind (mkIdent cat)) then -- Hack: `scientific` numbers are processed separately since atoms don't play nice with numbers, so just manually translate them to `Real`s
+    match input.getArg 0 with
+    | .node _ `scientific contents =>
+      match contents.toList with
+      | .atom _ val :: _ =>
+        throwError "TODO: scientific syntax elaboration"
+        -- match val.toFloat? with
+        -- | some f =>
+        --   let some e ← liftCommandElabM <| getExternalEquivalence ⟨externalScientificKind (mkIdent cat)⟩ | throwError m!"Internal assertion failed: no external equivalence found for key '{externalScientificKind (mkIdent cat)}'"
+        --   let some castFn := e.postprocess | throwError m!"Internal assertion failed: no cast function found for scientific syntax"
+        --   return mkApp castFn (mkFloatLit f)
+        -- | _ => throwError m!"Internal assertion failed: malformed scientific syntax"
+      | _ => throwError m!"Internal assertion failed: malformed scientific syntax"
+    | _ => throwError m!"Internal assertion failed: malformed scientific syntax"
 
   match externalElabAttribute.getEntries (← getEnv) input.getKind with
   | [] => throwError m!"Internal assertion failed: no elaborator found for external syntax of kind '{input.getKind}'"
