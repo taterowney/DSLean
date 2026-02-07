@@ -5,7 +5,9 @@ import Mathlib.Data.Real.Sqrt
 import Mathlib.Tactic
 set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
 
-open Lean Meta Elab Term Command Tactic in
+open Lean Meta Elab Term Command Tactic
+
+
 /-- Automatically unfolds all local let/have declarations -/
 elab "unfold_local" : tactic =>
   Lean.Elab.Tactic.withMainContext do
@@ -16,9 +18,13 @@ elab "unfold_local" : tactic =>
       else return none )
     Lean.Elab.Tactic.evalTactic <| ← `(tactic| dsimp [$localDecls,*] at *)
 
+elab "postpone_goal" : tactic => Lean.Elab.Tactic.withMainContext do
+  let goal ← getMainGoal
 
 
-injective external Gappa_input where
+
+
+external Gappa_input where
   "(" x "+" y ")" <== x + y
   "(" x "-" y ")" <== x - y
   "(" x "*" y ")" <== x * y
@@ -47,7 +53,7 @@ macro "mul_pp" : tactic => `(tactic| unfold_local <;> norm_num at * <;>
   <;> simp only [mul_pow, Real.sq_sqrt (x := 2) (by norm_num)]
   <;> norm_num)
 
-surjective external Gappa_output (numberCast := Int.ofNat) where
+external Gappa_output (numberCast := Int.ofNat) where
   x "->" y   ==> x → y; +rightAssociative
   x "/\\" y  ==> x ∧ y
   x "\\/" y  ==> x ∨ y
@@ -96,42 +102,70 @@ surjective external Gappa_output (numberCast := Int.ofNat) where
   "proj1" x  ==> And.left x
   "proj2" x  ==> And.right x
 
--- TODO: this doesn't work at all anymore :(
-partial def preprocess (s : String) : IO String :=
-  let escaped_comments := s.replace "(*" "/-" |>.replace "*)" "-/"
-  let rec loop (input : String) (acc : String := "") : String :=
-    if input = "" then acc else
-    if input.dropWhile (· == ' ') |>.startsWith "Gappa.Gappa_tree.simplify" then
-      loop (input.dropWhile '\n' |>.toString.drop 1).toString (acc ++ "Gappa.Gappa_tree.simplify _ in ")
-    else
-      let line := input.takeWhile (· != '\n')
-      loop (input.dropWhile '\n' |>.toString.drop 1).toString (acc ++ line ++ "\n")
-  let escaped := loop escaped_comments
-  return escaped
+def String.rawSlice (s : String) (start : Nat) (stop : Nat) : String :=
+  String.join <| List.range' start (stop - start) |>.map (fun i => s.get ⟨i⟩ |>.toString)
+
+
+/-- Make Gappa's output a little cleaner before translation, removing comments and super spam-y automation tactics to keep the final translation short -/
+partial def preprocess (s : String) : IO String := do
+  let mut no_comments := s.foldl (fun (acc, inComment, prevIsStar) c =>
+    if c == '*' && acc.back? == some '(' then (acc.dropEnd 1 |>.toString, true, true)
+    else if inComment && c == ')' && prevIsStar then (acc, false, false)
+    else if inComment then (acc, true, c == '*')
+    else (acc ++ c.toString, false, false)
+  ) ("", false, false) |>.1
+
+  for simplifyDecl in no_comments.findAllSubstr "Gappa.Gappa_tree.simplify" do
+    let nextIn := no_comments.drop simplifyDecl.startPos.byteIdx |>.toString.findSubstr? " in" |>.get!.startPos
+    let toReplace := String.slice! (no_comments) (no_comments.pos! simplifyDecl.startPos) (no_comments.pos! ⟨simplifyDecl.startPos.byteIdx + nextIn.byteIdx⟩)
+    no_comments := no_comments.replace toReplace "Gappa.Gappa_tree.simplify _ "
+
+  let mut i := 0
+  while i < no_comments.length do
+    if no_comments.rawSlice i (i + 3) == "let" then
+      let nextDef := no_comments.drop i |>.toString.findSubstr? ":=" |>.get!.startPos
+      let toReplace := String.slice! (no_comments) (no_comments.pos! ⟨i⟩) (no_comments.pos! ⟨i + nextDef.byteIdx + 2⟩)
+      let mut replaceContent := toReplace.toString
+      let mut lambdas : List String := []
+      while replaceContent.contains "(" do
+        let openParen := replaceContent.findSubstr? "(" |>.get!.startPos
+        let closeParen := replaceContent.findSubstr? ")" |>.get!.startPos
+        lambdas := lambdas ++ [replaceContent.rawSlice openParen.byteIdx (closeParen.byteIdx + 1)]
+        replaceContent := (replaceContent.rawSlice 0 openParen.byteIdx) ++ replaceContent.rawSlice (closeParen.byteIdx + 1) replaceContent.length
+      unless lambdas == [] do
+        replaceContent := replaceContent ++ " " ++ String.join (lambdas.map (fun s => "fun " ++ s ++ " =>"))
+        no_comments := no_comments.replace toReplace replaceContent
+    i := i + 1
+  return no_comments
 
 open Lean Meta Elab Term Command Tactic in
 elab "gappa" : tactic => do
   let goal ← getMainGoal
   let typ ← instantiateMVars (← goal.getType)
   let formatted ← toExternal `Gappa_input typ
-  IO.FS.writeFile "/Users/trowney/Desktop/Code/gappa/gappa/lean_test.g" s!"\{{formatted}}"
-  let res ← IO.Process.run {
-    cmd := "/Users/trowney/Desktop/Code/gappa/gappa/src/gappa",
-    args := #[s!"-Bcoq-lambda", "/Users/trowney/Desktop/Code/gappa/gappa/lean_test.g"],
-    stdin := .piped, stdout := .piped, stderr := .piped
-  }
+  let res ← IO.FS.withTempFile fun handle path => do
+    IO.FS.writeFile path s!"\{{formatted}}"
+    IO.Process.run {
+      cmd := (← IO.getEnv "DSLEAN_GAPPA_PATH").getD "gappa", args := #[s!"-Bcoq-lambda", path.toString],
+      stdin := .piped, stdout := .piped, stderr := .piped
+    }
+  logInfo m!"Gappa raw: {res}"
   let input ← preprocess res
   logInfo m!"Gappa output: {input}"
-  let proof ← processExternal `Gappa_output input
-  let proof ← Meta.whnf proof
+  let proof ← fromExternal `Gappa_output input
 
   let newhyp : Hypothesis := {
     userName := `h_gappa,
     type := ← Core.betaReduce (← Meta.whnf (← inferType proof)),
-    value := proof
+    value := ← Meta.whnf proof
   }
-  let ⟨ids, new⟩ ← goal.assertHypotheses #[newhyp]
+  let ⟨_, new⟩ ← goal.assertHypotheses #[newhyp]
   replaceMainGoal [new]
 
   Lean.Elab.Tactic.evalTactic (← `(tactic| norm_num at * ))
   Lean.Elab.Tactic.evalTactic (← `(tactic| try grind ))
+
+
+
+-- theorem test_thm : √2 ∈ Set.Icc 1.414 1.416 := by
+--   gappa

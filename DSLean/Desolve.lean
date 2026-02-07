@@ -11,7 +11,7 @@ import Mathlib.Analysis.Calculus.Deriv.Basic
 open Qq Lean Elab Term Command Tactic Meta
 
 
-injective external Sage_ODE_out where
+external Sage_ODE_out where
   "(" body ")" <== fun (x : Real) => body
   "(" body ")" <== fun (y : Real → Real) => body
   "Integer(" x ")" <== (x : Int)
@@ -32,13 +32,13 @@ injective external Sage_ODE_out where
   "cos(" x ")" <== Real.cos x
   "tan(" x ")" <== Real.tan x
 
-surjective external Sage_ODE_in where
+external Sage_ODE_in where
   "{" inside "}" ==> fun (_C _K1 _K2 x : Real) => inside
-  x "+" y ==> x + y
-  x "-" y ==> x - y
-  x "*" y ==> x * y
-  x "/" y ==> x / y
-  x "^" y ==> x ^ y
+  x "+" y ==> x + y   ; (precedence := 0)
+  x "-" y ==> x - y   ; (precedence := 0)
+  x "*" y ==> x * y   ; (precedence := 1)
+  x "/" y ==> x / y   ; (precedence := 1)
+  x "^" y ==> x ^ y   ; (precedence := 2)
   "-" x ==> -(x:Real)
   "e^" x ==> Real.exp x
   "log(" x ")" ==> Real.log x
@@ -49,8 +49,8 @@ surjective external Sage_ODE_in where
   "(" x ")" ==> x
 
 
-def python_sage_path : String :=
-  "/usr/local/bin/sage"
+-- def python_sage_path : String :=
+--   "/usr/local/bin/sage"
 
 private axiom sage_sound :
   ∀ (ode : Real → (Real → Real) → Prop)
@@ -66,18 +66,19 @@ elab "desolve" : tactic =>
   Lean.Elab.Tactic.withMainContext do
     let target ← instantiateMVars (← (← getMainGoal).getType)
     if !target.isAppOfArity ``isODEsolution 2 then
-      throwError "desolve tactic only works on goals of the form isODEsolution ode soln"
+      throwError "desolve tactic requires goals involving `isODEsolution`."
     let ode := target.appFn!.appArg!
     let soln := target.appArg!
 
     let formatted := "x = var('x'); y = function('y')(x); print(desolve(" ++ (← toExternal `Sage_ODE_out ode) ++ ",y).simplify_full())"
     let res ← IO.Process.run {
-      cmd := python_sage_path,
+      cmd := (← IO.getEnv "DSLEAN_SAGE_PATH").getD "sage",
       args := #["-c", formatted],
       stdin := .piped, stdout := .piped, stderr := .piped
     }
 
-    let out ← processExternal `Sage_ODE_in ("{" ++ res ++ "}")
+    let out ← fromExternal `Sage_ODE_in ("{" ++ res ++ "}")
+    logInfo m!"Sage output: {res}, {out}"
 
     let eq ← mkFreshExprMVar <| mkAppN (mkConst ``Eq [1]) #[q(Real → Real→ Real→ Real→ Real), soln, out]
     let term := mkAppN q(sage_sound) #[ode, out, soln, eq]
@@ -86,7 +87,3 @@ elab "desolve" : tactic =>
     replaceMainGoal new
 
     evalTactic (← `(tactic| try rfl; try congr <;> rfl ))
-
--- TODO: fix associativity
--- example : isODEsolution (fun x => fun y => deriv (deriv y) x + y x = 0) (fun C K1 K2 x => K2 * Real.cos x + K1 * Real.sin x) := by
---   desolve

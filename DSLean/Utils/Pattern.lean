@@ -231,10 +231,18 @@ where
           let updatedLCtx ← getLCtx
           setMCtx <| (← getMCtx).modifyExprMVarLCtx id (fun _ => updatedLCtx) -- TODO: This is probably unsafe in some situations; however, I can't figure out a nice way around it without refactoring everything. The mvar in question must be able to depend on the (newly created) fvars for `isDefEq` to work unfortunately. We could fix this by postponing the creation of the abstracted mvars until after the corresponding binder is created.
           let ty := (← id.getDecl).type
-          if ty.isMVar then
-            setMCtx <| (← getMCtx).modifyExprMVarLCtx ty.mvarId! (fun _ => updatedLCtx) -- TODO: what if ty isn't an mvar but has mvars somewhere else?
+          for m in (← getAllMVarIds ty) do
+            setMCtx <| (← getMCtx).modifyExprMVarLCtx m (fun _ => updatedLCtx)
 
           unless ← isDefEq e target do
+            logInfo m!"(type: {ty} type is mvar: {ty.isMVar}, type contains mvars: {ty.hasMVar})"
+            let new ← mkFreshExprMVar ty
+            logInfo m!"new: {(← new.mvarId!.getMVarDependencies).toList}, old: {(← id.getMVarDependencies).toList}"
+            logInfo m!"target type: {(← inferType e)}, is mvar: {(← inferType e).isMVar}"
+            logInfo m!"target deps: {(← (← inferType e).mvarId!.getMVarDependencies).toList}\n\ntarget lctx: {(← (← inferType e).mvarId!.getDecl).lctx.decls.toList.filterMap (fun decl => decl) |>.map (fun d => d.userName)}"
+
+            logInfo m!"Works with blank mvar: {← isDefEq e new}"
+
             throwError m!"Type mismatch when filling in blank '{name}': expected to unify with {e}, got {target}; current vars are {self.getVars}"
         catch e =>
           throwError m!"Type mismatch when filling in blank '{name}': {e.toMessageData}"

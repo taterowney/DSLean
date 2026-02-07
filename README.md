@@ -12,9 +12,17 @@ lake exe cache get
 lake build
 ```
 
+Or include as a library:
+```toml
+[[require]]
+name = "DSLean"
+git = "https://github.com/taterowney/DSLean.git"
+```
+
 Additionally, depending on which tactics you may want to use, you'll want to install the following external solvers:
  - [Gappa](https://gitlab.inria.fr/gappa/gappa)
  - [SageMath](https://doc.sagemath.org/html/en/installation/)
  - [Macaulay2](https://www.macaulay2.com/Downloads/)
 
-Currently you'll have to modify absolute paths within the files to make these work (TODO fix)
+Make sure the default commands to run these programs are available in your environment (`gappa`, `sage`, `macaulay2`), or specify an installation to use by setting the `DSLEAN_GAPPA_PATH`, `DSLEAN_SAGE_PATH`, and/or `DSLEAN_M2_PATH` environment variables (e.g. by adding `export DSLEAN_GAPPA_PATH=/path/to/gappa/executable` to your `.bashrc` file or equivalent). 
+

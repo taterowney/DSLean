@@ -33,7 +33,6 @@ def declareExternal (cat : Name) (patterns : Array (TSyntax `stx)) (target : TSy
   let ⟨k, variableNames, binderNames⟩ ← declareExternalSyntax cat patterns options -- Look through the external pattern, gather all the necessary variables, and declare a syntax node that parses that pattern
 
   let targetPat ← liftTermElabM <| target.toPattern none variableNames.toArray binderNames.toArray checkInjective? checkSujective? -- Make an ExprPattern from the target expression. This checks to make sure the variable names line up with those in the syntax patterns.
-  -- logInfo m!"Declared external equivalence: {targetPat.expr.expr}"
 
   addExternalEquivalence k cat k targetPat patterns checkInjective? checkSujective? -- Add information about this equivalence to the environment
 
@@ -67,7 +66,9 @@ partial def synthTCMVarsIn (e : Expr) : MetaM Expr := do
 
 
 /-- Elaborate a set of parsed external syntax, recursively filling in blanks. TODO: `elabContinuation` currently pretty simplistic: might want to add type filtration (requires delaboration/backtracking?), interface with state, and maybe make it a parameter -/
-partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option Expr := none) : TermElabM Expr := do
+partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option Expr := none) (depth := 0) : TermElabM Expr := do
+  if depth > 1000 then throwError "Elaboration failed: exceeded maximum recursion depth while elaborating. There is likely an infinite loop in the specification for this DSL."
+
   if input.getKind == (externalNumKind (mkIdent cat)) then -- Hack: `num`s are processed separately since atoms don't play nice with numbers, so just manually translate them to `Nat`s
     match input.getArg 0 with
     | .node _ `num contents =>
@@ -119,16 +120,16 @@ partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option E
     let binderNameCont := fun (n : Name) => match binderNames.find? (fun (bn, _) => bn == n) with
       | some (_, name) => return name
       | none => throwError m!"Unification failed: no value provided for binder blank '{n}'"
-    let out ← instantiateMVars (← e.exprPattern.unify expectedType? (blankCont blankContents) binderNameCont)
+    let out ← instantiateMVars (← e.exprPattern.unify expectedType? (blankCont depth blankContents) binderNameCont)
     synthTCMVarsIn out
 
-where blankCont (blankContents : List (Name × Syntax)) (name : Name) (expectedType? : Option Expr) : TermElabM Expr := do
+where blankCont (depth : Nat) (blankContents : List (Name × Syntax)) (name : Name) (expectedType? : Option Expr) : TermElabM Expr := do
   match blankContents.find? (fun (n, _) => n == name) with
-  | some (_, stx) => elabExternal cat stx expectedType?
+  | some (_, stx) => elabExternal cat stx expectedType? (depth + 1)
   | none => throwError m!"Unification failed: no value provided for blank '{name}'"
 
 
 /-- Process (parse and elaborate) an input string according to the external syntax category `cat`. -/
-def processExternal (cat : Name) (input : String) : TermElabM Expr := do
+def fromExternal (cat : Name) (input : String) : TermElabM Expr := do
   let stx ← parseExternal cat input
   elabExternal cat stx

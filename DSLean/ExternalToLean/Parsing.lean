@@ -39,13 +39,14 @@ def addPrecedences (syntaxPatterns : Array Syntax) (options : ExternalEquivalenc
         if [.anonymous, `ident, `num, `str].contains catDecl.getId then -- Don't add precedences to things that don't like them
           p
         else
-          let prec := if startsWithAtom && hasSeparators then "60" else -- If it's nicely interspersed with atoms, just keep the precedences normal
+          let prec := if startsWithAtom && hasSeparators then (60:Int) else -- If it's nicely interspersed with atoms, just keep the precedences normal
             if !options.rightAssociative then -- If it's weird and (by default) left associative, then assign everything except the first to higher precedence, so that leading `Syntax.cat`s don't screw up other patterns
-              if i == 0 then "60" else "61"
+              if i == 0 then 60 else 61
             else
-              if i == 0 then "61" else "60" -- If right associative, make it heterogenous the other way around
+              if i == 0 then 61 else 60 -- If right associative, make it heterogenous the other way around
+          -- let prec := prec + options.precedence
           let newArgs := args.push
-            (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default prec)])])])
+            (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default prec.toNat.repr)])])]) -- Add a precedence annotation to the end of the syntax pattern
           .node info k newArgs
       | _ => p
     | x => x
@@ -120,7 +121,7 @@ def declareExternalSyntax (cat : Name) (patterns : Array Syntax) (options : Exte
   let (val, lhsPrec?) ← runTermElabM fun _ => Term.toParserDescr syntaxParser cat
 
   let prio := 0
-  let prec := 60
+  let prec := 60 + options.precedence
 
 
   let name ← addMacroScopeIfLocal (← liftMacroM <| mkNameFromParserSyntax cat syntaxParser) default
@@ -136,7 +137,7 @@ def declareExternalSyntax (cat : Name) (patterns : Array Syntax) (options : Exte
 
   let d ← if let some lhsPrec := lhsPrec? then
     `(@[$attrInstances,*] meta def $declName:ident : Lean.TrailingParserDescr :=
-        ParserDescr.trailingNode $(quote stxNodeKind) $(quote prec) $(quote lhsPrec) $val)
+        ParserDescr.trailingNode $(quote stxNodeKind) $(quote prec.toNat) $(quote lhsPrec) $val)
   else
     let prec := 1024
     `(@[$attrInstances,*] meta def $declName:ident : Lean.ParserDescr :=

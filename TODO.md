@@ -1,0 +1,13 @@
+- Mix <== and ==> arrows?
+- No-ops on the Lean side create an infinite loop when translating downwards (e.g. infinite parentheses)
+- Doing let ... := val when val's type of the metavariable somehow gets rid of the info about the metavariable.
+- Custom parser states
+- Non-ascii characters ok?
+- Wildcards/optional within patterns correspond to lists on the other side?
+- Could we skip the entire elaboration step by just looking at the SyntaxNodeKind?
+- Backtracking (in parsing too) for type filtration?
+- Maybe some theorems about correctness/roundtripability?
+- Better logic for `num`s/casting
+- Why no antiquot at the beginning of a line?
+- Automatically infer precedences from Lean versions of operators
+- More readable error messages

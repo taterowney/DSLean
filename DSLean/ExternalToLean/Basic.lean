@@ -18,5 +18,6 @@ open Std.Internal Parser Command Syntax Quote
 /-- Carries user-defined additional options for external equivalences (each line of the DSL). -/
 structure ExternalEquivalenceOptions where
   rightAssociative : Bool := false
+  precedence : Int := 0
 deriving Inhabited, Repr
 declare_command_config_elab elabExternalEquivalenceOptions ExternalEquivalenceOptions
