@@ -1,5 +1,6 @@
 import DSLean.GappaNew
 import DSLean.Desolve
+import DSLean.Macaulay2
 set_option warn.sorry false
 open Lean Meta Qq
 
@@ -35,27 +36,30 @@ bijective external test_lang where
 /- `gappa` tactic: interval arithmetic -/
 
 
--- theorem test_thm : √2 ∈ Set.Icc 1.414 1.4151 := by
---   gappa
--- #print test_thm
+theorem test_thm : √2 ∈ Set.Icc 1.414 1.4151 := by
+  gappa
+#print test_thm
 
--- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * (1-y) ∈ Set.Icc 0 0.5 := by
---   gappa
-
-
--- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * y * y ∈ Set.Icc 0 1 := by
---   gappa
+example (y : ℝ) : y ∈ Set.Icc 0 1 → y * (1-y) ∈ Set.Icc 0 0.5 := by
+  gappa
 
 
-
--- example (a b c : Real) : c ∈ Set.Icc (-0.3 : Real) (-0.1 : Real) ∧ (2 * a ∈ Set.Icc 3 4 -> b + c ∈ Set.Icc 1 2) ∧
---   a - c ∈ Set.Icc 1.9 2.05 → b + 1 ∈ Set.Icc 2 3.5 := by
---   gappa
---   have := h_gappa c a b
---   exact this
+example (y : ℝ) : y ∈ Set.Icc 0 1 → y * y * y ∈ Set.Icc 0 1 := by
+  gappa
 
 
--- Abstract, motivation, examples, implementation details, related work
+
+example (a b c : Real) : c ∈ Set.Icc (-0.3 : Real) (-0.1 : Real) ∧ (2 * a ∈ Set.Icc 3 4 -> b + c ∈ Set.Icc 1 2) ∧
+  a - c ∈ Set.Icc 1.9 2.05 → b + 1 ∈ Set.Icc 2 3.5 := by
+  gappa
+  have := h_gappa c a b
+  exact this
+
+example (x : ℝ) : x ∈ Set.Icc (-3) 3 → x * x ∈ Set.Icc 0 9 := by
+  gappa
+
+example (x : ℝ) : x ∈ Set.Icc (-2) 2 → (x + 1) * (x + 1) ∈ Set.Icc 0 9 := by
+  gappa
 
 
 /- `desolve`: ordinary differential equations -/
@@ -64,17 +68,24 @@ bijective external test_lang where
 #print isODEsolution
 
 
--- example : isODEsolution
---   (fun x => fun y => deriv y x = 1)
---   (fun C K1 K2 x => C + x) := by
---   desolve
+example : isODEsolution
+  (fun x => fun y => deriv y x = 1)
+  (fun C K1 K2 x => C + x) := by
+  desolve
 
--- example : isODEsolution
---   (fun x => fun y => deriv y x + y x = 1)
---   (fun C K1 K2 x => (C + Real.exp x) * (Real.exp (-x))) := by
---   desolve
+example : isODEsolution
+  (fun x => fun y => deriv y x + y x = 1)
+  (fun C K1 K2 x => (C + Real.exp x) * (Real.exp (-x))) := by
+  desolve
 
--- example : isODEsolution
---   (fun x => fun y => deriv (deriv y) x + 2 * deriv y x + y x = 0)
---   (fun C K1 K2 x => (K2 * x + K1 ) * Real.exp (-x)) := by
---   desolve
+example : isODEsolution
+  (fun x => fun y => deriv (deriv y) x + 2 * deriv y x + y x = 0)
+  (fun C K1 K2 x => (K2 * x + K1 ) * Real.exp (-x)) := by
+  desolve
+
+example : isODEsolution
+  (fun x => fun y => deriv y x = Real.exp x)
+  (fun C K1 K2 x => Real.exp x + C) := by
+  desolve
+  -- funext C K1 K2 x
+  -- simp [add_comm]

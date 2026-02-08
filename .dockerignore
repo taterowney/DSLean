@@ -1,0 +1,9 @@
+.git
+.github
+.lake/build
+.lake/packages
+.lean
+.DS_Store
+*.olean
+*.ilean
+build

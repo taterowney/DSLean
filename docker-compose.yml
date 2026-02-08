@@ -1,0 +1,16 @@
+services:
+  dslean:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dslean:local
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      DSLEAN_GAPPA_BIN: /usr/bin/gappa
+      DSLEAN_SAGE_BIN: /usr/bin/sage
+      DSLEAN_TMP_DIR: /tmp/dslean
+    stdin_open: true
+    tty: true
+    command: bash

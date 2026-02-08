@@ -48,9 +48,17 @@ surjective external Sage_ODE_in where
   "tan(" x ")" ==> Real.tan x
   "(" x ")" ==> x
 
+private def getEnvOrDefault (name defaultValue : String) : IO String := do
+  match (← IO.getEnv name) with
+  | some value =>
+      if value.isEmpty then
+        pure defaultValue
+      else
+        pure value
+  | none => pure defaultValue
 
-def python_sage_path : String :=
-  "/usr/local/bin/sage"
+private def getSagePath : IO String :=
+  getEnvOrDefault "DSLEAN_SAGE_BIN" "/usr/bin/sage"
 
 private axiom sage_sound :
   ∀ (ode : Real → (Real → Real) → Prop)
@@ -71,11 +79,16 @@ elab "desolve" : tactic =>
     let soln := target.appArg!
 
     let formatted := "x = var('x'); y = function('y')(x); print(desolve(" ++ (← toExternal `Sage_ODE_out ode) ++ ",y).simplify_full())"
-    let res ← IO.Process.run {
-      cmd := python_sage_path,
-      args := #["-c", formatted],
-      stdin := .piped, stdout := .piped, stderr := .piped
-    }
+    let sagePath ← getSagePath
+    let res ←
+      try
+        IO.Process.run {
+          cmd := sagePath,
+          args := #["-c", formatted],
+          stdin := .piped, stdout := .piped, stderr := .piped
+        }
+      catch _ =>
+        throwError m!"sage invocation failed (cmd: {sagePath}). Set DSLEAN_SAGE_BIN."
 
     let out ← processExternal `Sage_ODE_in ("{" ++ res ++ "}")
 

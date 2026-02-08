@@ -47,7 +47,10 @@ def parseExternal (cat : Name) (input : String) : TermElabM Syntax := do
   let ctx := Parser.mkInputContext input "<input>"
   let out := p.run ctx {env := e, options := default} (Parser.getTokenTable e) {cache := Parser.initCacheForInput input, pos := 0} -- TokenTable here might allow for non-unicode characters
   if out.hasError then
-    throwError m!"Syntax error in input: {out.errorMsg}"
+    let errPos := out.pos.byteIdx
+    let start := errPos - 120
+    let snippet := (input.drop start).take 240
+    throwError m!"Syntax error in input at byte {errPos}: {out.errorMsg}\nNearby input:\n{snippet}"
   if out.pos.byteIdx != input.length then
     throwError m!"Syntax error in input: unexpected trailing characters {input.drop out.pos.byteIdx}"
   return out.stxStack.back
