@@ -112,14 +112,3 @@ def injectiveDSLImpl : CommandElab := fun stx => do
         | _ => pure {}
       declareExternal name syntaxPats target true false parsedOptions
     | _ => throwError m!"Unsupported syntax: {line}"
-
-
-
-
-syntax (name := processExternalCmd) "process" ident term : term
-@[term_elab processExternalCmd]
-def processExternalCmdImpl : TermElab := fun stx _ => do
-  let cat : Name := stx.getArgs[1]!.getId
-  let input : String := stx.getArgs[2]!.isStrLit?.get!
-  let out ← fromExternal cat input
-  return out

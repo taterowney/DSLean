@@ -131,6 +131,13 @@ where blankCont (depth : Nat) (blankContents : List (Name × Syntax)) (name : Na
 
 
 /-- Process (parse and elaborate) an input string according to the external syntax category `cat`. -/
-def fromExternal (cat : Name) (input : String) : TermElabM Expr := do
+def fromExternal' (cat : Name) (input : String) : TermElabM Expr := do
   let stx ← parseExternal cat input
   elabExternal cat stx
+
+-- TODO: how do I make these terms instead?
+elab "fromExternal" cat:ident input:str : term => do
+  let cat := cat.getId
+  let input := input.raw.isStrLit?.get!
+  let out ← fromExternal' cat input
+  return out

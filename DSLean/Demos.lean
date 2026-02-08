@@ -30,8 +30,6 @@ external test_lang where
 
 
 
-
-
 /- `gappa` tactic: interval arithmetic -/
 
 

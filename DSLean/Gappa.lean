@@ -146,7 +146,7 @@ elab "gappa" : tactic => do
   logInfo m!"Gappa raw: {res}"
   let input ← preprocess res
   logInfo m!"Gappa output: {input}"
-  let proof ← fromExternal `Gappa_output input
+  let proof ← fromExternal' `Gappa_output input
 
   let newhyp : Hypothesis := {
     userName := `h_gappa,

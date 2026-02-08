@@ -77,7 +77,7 @@ elab "desolve" : tactic =>
       stdin := .piped, stdout := .piped, stderr := .piped
     }
 
-    let out ← fromExternal `Sage_ODE_in ("{" ++ res ++ "}")
+    let out ← fromExternal' `Sage_ODE_in ("{" ++ res ++ "}")
     logInfo m!"Sage output: {res}, {out}"
 
     let eq ← mkFreshExprMVar <| mkAppN (mkConst ``Eq [1]) #[q(Real → Real→ Real→ Real→ Real), soln, out]

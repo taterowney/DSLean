@@ -6,7 +6,7 @@ import Mathlib.RingTheory.Ideal.Quotient.Defs
 import Mathlib.RingTheory.Ideal.Span
 
 
-injective external M2_out where
+external M2_out where
   x "+" y <== x + y
   x "-" y <== x - y
   x "*" y <== x * y
