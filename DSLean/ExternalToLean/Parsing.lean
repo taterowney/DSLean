@@ -100,6 +100,7 @@ def declareExternalSyntax (cat : Name) (patterns : Array Syntax) (options : Exte
       match k with
       | `Lean.Parser.Syntax.atom =>
         syntaxParts := syntaxParts.push p
+        -- syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.nonReserved (#[(Lean.Syntax.atom default "&")] ++ args)) -- Ensure the keyword isn't reserved in Lean itself to not interrupt other stuff
       | `Lean.Parser.Syntax.cat =>
         match args.toList with
         | (.ident _ raw _ _ ) :: _ =>

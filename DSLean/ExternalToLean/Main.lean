@@ -23,6 +23,7 @@ open Std.Internal Parser Command Syntax Quote
 /-- Set up an external parser category for a DSL with this name, and add some default elaborators that are a part of every DSL. -/
 def initializeExternalCategory (cat : TSyntax `ident) (checkInjective? : Bool) (checkSujective? : Bool) (castFn : Expr) : CommandElabM Unit := do
   elabCommand (← `(declare_syntax_cat $cat))
+  -- elabCommand (← `(declare_syntax_cat $cat (behavior := symbol))) -- TODO: this makes reserved keywords process as idents for some reason
 
   declareDefaultElaborators cat checkInjective? checkSujective? castFn
 

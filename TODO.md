@@ -11,3 +11,5 @@
 - Why no antiquot at the beginning of a line?
 - Automatically infer precedences from Lean versions of operators
 - More readable error messages
+- No reserving random keywords (put &)
+- Combining hypotheses into goal via ->

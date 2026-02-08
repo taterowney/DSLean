@@ -1,4 +1,4 @@
-import DSLean.GappaNew
+import DSLean.Gappa
 import DSLean.Desolve
 set_option warn.sorry false
 open Lean Meta Qq
@@ -9,7 +9,7 @@ open Lean Meta Qq
 
 
 
-bijective external test_lang where
+external test_lang where
   "true" <==> «True»
   "false" <==> «False»
   "not" x <==> ¬ x
@@ -38,24 +38,20 @@ bijective external test_lang where
 -- theorem test_thm : √2 ∈ Set.Icc 1.414 1.4151 := by
 --   gappa
 -- #print test_thm
-
+-- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * y * y ∈ Set.Icc 0 1 := by
+--   gappa
 -- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * (1-y) ∈ Set.Icc 0 0.5 := by
 --   gappa
 
 
--- example (y : ℝ) : y ∈ Set.Icc 0 1 → y * y * y ∈ Set.Icc 0 1 := by
---   gappa
+
 
 
 
 -- example (a b c : Real) : c ∈ Set.Icc (-0.3 : Real) (-0.1 : Real) ∧ (2 * a ∈ Set.Icc 3 4 -> b + c ∈ Set.Icc 1 2) ∧
 --   a - c ∈ Set.Icc 1.9 2.05 → b + 1 ∈ Set.Icc 2 3.5 := by
 --   gappa
---   have := h_gappa c a b
---   exact this
 
-
--- Abstract, motivation, examples, implementation details, related work
 
 
 /- `desolve`: ordinary differential equations -/

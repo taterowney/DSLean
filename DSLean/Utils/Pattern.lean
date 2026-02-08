@@ -235,15 +235,7 @@ where
             setMCtx <| (← getMCtx).modifyExprMVarLCtx m (fun _ => updatedLCtx)
 
           unless ← isDefEq e target do
-            logInfo m!"(type: {ty} type is mvar: {ty.isMVar}, type contains mvars: {ty.hasMVar})"
-            let new ← mkFreshExprMVar ty
-            logInfo m!"new: {(← new.mvarId!.getMVarDependencies).toList}, old: {(← id.getMVarDependencies).toList}"
-            logInfo m!"target type: {(← inferType e)}, is mvar: {(← inferType e).isMVar}"
-            logInfo m!"target deps: {(← (← inferType e).mvarId!.getMVarDependencies).toList}\n\ntarget lctx: {(← (← inferType e).mvarId!.getDecl).lctx.decls.toList.filterMap (fun decl => decl) |>.map (fun d => d.userName)}"
-
-            logInfo m!"Works with blank mvar: {← isDefEq e new}"
-
-            throwError m!"Type mismatch when filling in blank '{name}': expected to unify with {e}, got {target}; current vars are {self.getVars}"
+            throwError m!"Type mismatch when filling in blank '{name}': expected to unify with {e}, got {target}."
         catch e =>
           throwError m!"Type mismatch when filling in blank '{name}': {e.toMessageData}"
       | _ => pure ()
