@@ -1,5 +1,6 @@
 import DSLean.Gappa
 import DSLean.Desolve
+import DSLean.LeanM2
 set_option warn.sorry false
 open Lean Meta Qq
 
@@ -72,3 +73,11 @@ external test_lang where
 --   (fun x => fun y => deriv (deriv y) x + 2 * deriv y x + y x = 0)
 --   (fun C K1 K2 x => (K2 * x + K1 ) * Real.exp (-x)) := by
 --   desolve
+
+
+
+/- `lean_m2`: ideal membership via Macaulay2 -/
+
+-- example (x y : ℤ) : 2 * x + 3 * y ∈ Ideal.span {x, y} := by lean_m2
+-- example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by lean_m2
+-- example (x y : ℚ) : x^3 + y^3 ∈ Ideal.span {x + y} := by lean_m2
