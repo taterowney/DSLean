@@ -44,33 +44,33 @@ private def strContains (s : String) (sub : String) : Bool :=
 /-- Extract the element and ideal set from a goal of the form `elem ∈ Ideal.span S`.
     Returns `(ringType, setExpr, elemExpr)`. -/
 def getMem (goal : Expr) : MetaM (Expr × Expr × Expr) := do
-  let goal ← whnf goal
+  -- Don't whnf the whole goal — that unfolds ∈ through SetLike and loses Membership.mem
+  let goal ← instantiateMVars goal
   match goal.getAppFn.constName? with
   | some ``Membership.mem =>
+    -- @Membership.mem R (Ideal R) inst (Ideal.span S) elem
     let args := goal.getAppArgs
-    if args.size < 5 then throwError "getMem: unexpected number of arguments to Membership.mem"
+    if args.size < 5 then throwError "getMem: unexpected number of arguments to Membership.mem ({args.size})"
     let ringType := args[0]!
-    let elem := args[3]!
-    let idealSpan := args[4]!
-    let idealSpan ← whnf idealSpan
+    let idealSpan := args[3]!
+    let elem := args[4]!
     match idealSpan.getAppFn.constName? with
     | some ``Ideal.span =>
-      let spanArgs := idealSpan.getAppArgs
-      if spanArgs.size < 2 then throwError "getMem: unexpected number of arguments to Ideal.span"
-      let setExpr := spanArgs[1]!
+      -- @Ideal.span R inst S
+      let setExpr := idealSpan.appArg!
       return (ringType, setExpr, elem)
     | some ``Submodule.span =>
-      let spanArgs := idealSpan.getAppArgs
-      if spanArgs.size < 3 then throwError "getMem: unexpected number of arguments to Submodule.span"
-      let setExpr := spanArgs[2]!
+      -- @Submodule.span R _ inst S
+      let setExpr := idealSpan.appArg!
       return (ringType, setExpr, elem)
     | _ => throwError m!"getMem: expected Ideal.span or Submodule.span, got {idealSpan}"
-  | _ => throwError "getMem: expected membership goal of the form (elem ∈ Ideal.span S)"
+  | _ => throwError m!"getMem: expected membership goal (elem ∈ Ideal.span S), got head: {goal.getAppFn}"
 
 /-- Extract generators from a set expression like `insert x (insert y (insert z ∅))`.
     Returns the list of generator expressions. -/
 partial def parseExprIdealSpan (setExpr : Expr) : MetaM (List Expr) := do
-  let setExpr ← whnf setExpr
+  -- Don't use whnf — it unfolds set notation into predicates
+  let setExpr ← instantiateMVars setExpr
   match setExpr.getAppFn.constName? with
   | some ``Insert.insert =>
     let args := setExpr.getAppArgs
@@ -127,72 +127,98 @@ def getRingRepr (ringType : Expr) : MetaM String := do
 def replaceVarsInM2String (s : String) (atomMap : List (String × String)) : String :=
   atomMap.foldl (fun acc (origName, m2Name) => acc.replace origName m2Name) s
 
-/-- Replace M2 variable names back with fvar user-names. Replaces longer names first. -/
-def replaceVarsBackFromM2 (s : String) (atomMap : List (String × String)) : String :=
-  let sorted := atomMap.toArray.qsort (fun (_, m2a) (_, m2b) => m2a.length > m2b.length)
-  sorted.foldl (fun acc (origName, m2Name) => acc.replace m2Name origName) s
+/-- Insert explicit `*` between adjacent M2 variable names (e.g., "x0x1" → "x0*x1"),
+    between a number and a variable (e.g., "3x0" → "3*x0"),
+    and between a variable and a number. -/
+def insertExplicitMul (s : String) (atomNames : List String) : String := Id.run do
+  -- Sort by length descending to replace longer names first
+  let sorted := atomNames.toArray.qsort (fun a b => a.length > b.length)
+  -- First pass: replace each atom name with a tagged version
+  let mut result := s
+  for name in sorted do
+    result := result.replace name s!"«{name}»"
+  -- Now insert * between adjacent tagged names, or number«name» patterns
+  -- Pattern: »« means two adjacent variables, digit« means number*var
+  result := result.replace "»«" "»*«"
+  -- Handle number followed by variable: e.g., "3«x0»" → "3*«x0»"
+  let mut chars := result.toList
+  let mut output : List Char := []
+  for i in List.range chars.length do
+    let c := chars[i]!
+    if c == '«' && i > 0 then
+      let prev := chars[i-1]!
+      if prev.isDigit then
+        output := output ++ ['*']
+    output := output ++ [c]
+  result := String.mk output
+  -- Remove tags
+  result := result.replace "«" "" |>.replace "»" ""
+  result
+
+/-- Replace M2 variable names back with fvar user-names. Replaces longer names first.
+    Also inserts explicit `*` for M2's implicit multiplication. -/
+def replaceVarsBackFromM2 (s : String) (atomNamePairs : List (String × String)) (atomM2Names : List String) : String :=
+  -- First insert explicit multiplication between adjacent M2 var names
+  let withMul := insertExplicitMul s atomM2Names
+  -- Then replace M2 names with original names (longer first)
+  let sorted := atomNamePairs.toArray.qsort (fun (_, m2a) (_, m2b) => m2a.length > m2b.length)
+  sorted.foldl (fun acc (origName, m2Name) => acc.replace m2Name origName) withMul
 
 /-- Build the M2 script string for ideal membership checking. -/
 def buildM2Script (ringRepr : String) (atomNames : List String) (elemStr : String) (genStrs : List String) : String :=
   let varList := String.intercalate ", " atomNames
   let genList := String.intercalate ", " genStrs
+  let lb := "{"  -- M2 brace
+  let rb := "}"
+  -- Strategy: compute GB with change matrix, then express f in terms of original generators
+  -- CM satisfies: gens I * CM = gens GB, so coeffs_orig = CM * (f // gens GB)
   let lines := [
-    s!"R = {ringRepr}[{varList}]",
-    s!"f = {elemStr}",
-    s!"I = ideal({genList})",
-    s!"G = gb(I, ChangeMatrix=>true)",
-    s!"f % G",
-    s!"(getChangeMatrix G) * (transpose gens gb I) * (f // gens gb I)"
+    "R = " ++ ringRepr ++ "[" ++ varList ++ "]",
+    "I = ideal(" ++ genList ++ ")",
+    "Gfull = gb(I, ChangeMatrix=>true)",
+    "fMat = matrix" ++ lb ++ lb ++ elemStr ++ rb ++ rb,
+    "print(fMat % gens Gfull)",
+    "print((getChangeMatrix Gfull) * (fMat // gens Gfull))"
   ]
   String.intercalate "\n" lines ++ "\n"
 
-/-- Parse M2 stdout to extract the remainder and coefficient expressions. -/
+/-- Parse M2 stdout from `--script` mode with `print` statements.
+    First print: remainder (should be "0")
+    Second print: column vector of coefficients, one per line as `{deg} | coeff |` -/
 def parseM2Output (stdout : String) (numGens : Nat) : MetaM (Bool × List String) := do
   let lines := stdout.splitOn "\n"
     |>.map (fun s => s.trimAscii.toString)
     |>.filter (· ≠ "")
 
-  let mut remainderIsZero := false
-  let mut coeffLine := ""
-  let mut foundCoeffs := false
+  -- First non-empty line should be the remainder
+  match lines with
+  | [] => throwError "lean_m2: no output from Macaulay2"
+  | remLine :: coeffLines =>
+    let remainderIsZero := remLine.trimAscii.toString == "0"
+    unless remainderIsZero do
+      throwError m!"lean_m2: Macaulay2 reports nonzero remainder ({remLine}) — element is not in the ideal"
 
-  for line in lines do
-    if strContains line "= 0" && !foundCoeffs then
-      if line.startsWith "o" then
-        remainderIsZero := true
-    if strContains line "|" && !foundCoeffs then
-      coeffLine := line
-      foundCoeffs := true
-    else if foundCoeffs && strContains line "|" then
-      coeffLine := coeffLine ++ " " ++ line
+    -- Parse coefficient lines: each looks like "{1} | coeff_expr |"
+    -- or for a 1×1 matrix: "| coeff_expr |"
+    let mut coeffs : List String := []
+    for line in coeffLines do
+      if strContains line "|" then
+        -- Extract content between | delimiters
+        let parts := line.splitOn "|" |>.map (fun s => s.trimAscii.toString) |>.filter (· ≠ "")
+        -- The last non-empty part between |s is the coefficient
+        -- For "{1} | coeff |", parts = ["{1}", "coeff"] or just ["coeff"]
+        match parts.reverse with
+        | coeff :: _ => coeffs := coeffs ++ [coeff]
+        | [] => pure ()
 
-  unless remainderIsZero do
-    throwError "lean_m2: Macaulay2 reports nonzero remainder — element is not in the ideal"
+    if coeffs.length != numGens then
+      throwError m!"lean_m2: expected {numGens} coefficients from M2, got {coeffs.length}. Raw output:\n{stdout}"
 
-  let coeffPart := if strContains coeffLine "=" then
-    (coeffLine.splitOn "=").getLast!.trimAscii.toString
-  else
-    coeffLine.trimAscii.toString
-
-  let inner := (coeffPart.replace "|" "").trimAscii.toString
-
-  let coeffs := if inner.isEmpty then []
-    else inner.splitOn " " |>.filter (· ≠ "")
-
-  if coeffs.length != numGens then
-    let allParts := coeffPart.splitOn "|"
-      |>.map (fun s => s.trimAscii.toString)
-      |>.filter (· ≠ "")
-    if allParts.length == numGens then
-      return (remainderIsZero, allParts)
-    else
-      throwError m!"lean_m2: expected {numGens} coefficients from M2, got {coeffs.length}. Raw: {coeffLine}"
-
-  return (remainderIsZero, coeffs)
+    return (remainderIsZero, coeffs)
 
 /-- Call Macaulay2 with the given script and return stdout. -/
 def callM2 (script : String) : MetaM String := do
-  let m2Path := (← IO.getEnv "DSLEAN_M2_PATH").getD "M2"
+  let m2Path := (← IO.getEnv "DSLEAN_M2_PATH").getD "/Applications/Macaulay2-1.21/bin/M2"-- "M2"
   IO.FS.withTempFile fun _handle path => do
     IO.FS.writeFile path script
     let result ← IO.Process.output {
@@ -266,7 +292,7 @@ elab "lean_m2" : tactic =>
     -- Step 8: Parse coefficient strings back to Lean expressions via M2_in
     let mut coeffTerms : Array (TSyntax `term) := #[]
     for coeffStr in coeffStrs do
-      let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs
+      let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs atomM2Names
       logInfo m!"lean_m2: parsing coefficient: {coeffWithNames}"
       let coeffExpr ← fromExternal' `M2_in coeffWithNames
       let coeffTerm ← PrettyPrinter.delab coeffExpr
@@ -279,10 +305,20 @@ elab "lean_m2" : tactic =>
     evalTactic (← `(tactic|
       simp only [$spanInsert:ident, $spanSingleton:ident]))
 
-    -- Use each coefficient
-    for coeffTerm in coeffTerms do
-      logInfo m!"lean_m2: using coefficient: {coeffTerm}"
-      Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [coeffTerm]
+    -- Use each coefficient. mem_span_insert' gives ∃ a, x + a*y ∈ span s,
+    -- so the insert coefficients need to be negated (a = -c).
+    -- The last coefficient (for mem_span_singleton': ∃ a, a*y = x) is used directly.
+    for i in List.range coeffTerms.size do
+      let coeffTerm := coeffTerms[i]!
+      if i < coeffTerms.size - 1 then
+        -- For mem_span_insert': negate the coefficient
+        let negTerm ← `(- $coeffTerm)
+        logInfo m!"lean_m2: using coefficient (negated for insert): {negTerm}"
+        Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [negTerm]
+      else
+        -- For mem_span_singleton': use directly
+        logInfo m!"lean_m2: using coefficient (singleton): {coeffTerm}"
+        Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [coeffTerm]
 
-    -- Close with ring
-    evalTactic (← `(tactic| ring))
+    -- Close with ring (simp normalizes Int.ofNat zpow exponents from M2_in parsing)
+    evalTactic (← `(tactic| simp only [Int.ofNat_eq_natCast, zpow_natCast]; ring))

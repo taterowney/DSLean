@@ -18,7 +18,7 @@ external test_lang where
   x "or" y <==> x ∨ y
   x "implies" y <==> x → y
 
-#eval do logInfo m!"{← fromExternal `test_lang "not true and false implies true"}"
+#eval do logInfo m!"{← fromExternal' `test_lang "not true and false implies true"}"
 
 #eval toExternal `test_lang (q(«True» ∧ «False» → «True»))
 
@@ -78,6 +78,6 @@ external test_lang where
 
 /- `lean_m2`: ideal membership via Macaulay2 -/
 
--- example (x y : ℤ) : 2 * x + 3 * y ∈ Ideal.span {x, y} := by lean_m2
--- example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by lean_m2
--- example (x y : ℚ) : x^3 + y^3 ∈ Ideal.span {x + y} := by lean_m2
+example (x y : ℤ) : 2 * x + 3 * y ∈ Ideal.span {x, y} := by lean_m2
+example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by lean_m2
+example (x y : ℚ) : x^3 + y^3 ∈ Ideal.span {x + y} := by lean_m2
