@@ -1,9 +1,13 @@
 import DSLean.Command
 import Mathlib.Data.Nat.Basic
 import Mathlib.Data.Nat.Factorial.Basic
+import Mathlib.Data.ZMod.Basic
+import Mathlib.Data.Real.Basic
+import Mathlib.Data.Complex.Basic
 import Mathlib.RingTheory.Congruence.Defs
 import Mathlib.RingTheory.Ideal.Quotient.Defs
 import Mathlib.RingTheory.Ideal.Span
+import Mathlib.RingTheory.Polynomial.Basic
 import Mathlib.Tactic.Ring
 import Mathlib.Tactic.Use
 
@@ -16,14 +20,25 @@ external M2_out where
   x "^" y <== x ^ y
   x "!" <== Nat.factorial x
   "-" x <== -(x : Int)
+  "-" x <== -(x : ℝ)
+  "-" x <== -(x : ℂ)
+
+  -- Complex imaginary unit
+  "ii" <== Complex.I
+
+  -- Polynomial support
+  "a0" <== Polynomial.X
+  "(" x ")" <== Polynomial.C x
 
   ";" $x "=" y ";" rest <== let x := y; rest
   "ZZ" <== ℤ
   "QQ" <== ℚ
+  "RR" <== ℝ
+  "CC" <== ℂ
   R "/" x <== R ⧸ Ideal.span ({x} : Set R)
 
 -- M2 string → Lean Expr (surjective, for parsing M2 coefficient output back to Lean)
-external M2_in (numberCast := Int.ofNat) where
+external M2_in where
   x "+" y   ==> x + y   ; (precedence := 0)
   x "-" y   ==> x - y   ; (precedence := 0)
   x "*" y   ==> x * y   ; (precedence := 1)
@@ -31,10 +46,10 @@ external M2_in (numberCast := Int.ofNat) where
   x "^" y   ==> x ^ y   ; (precedence := 2)
   "-" x     ==> - x
   "(" x ")" ==> x
+  "ii"       ==> Complex.I
 
-open Lean Meta Elab Term Command Tactic Qq in
-#eval do
-  logInfo m!"{← toExternal `M2_out (q(ℚ ⧸ Ideal.span (Set.singleton 5 : Set ℚ)))}"
+
+
 
 open Lean Meta Elab Term Command Tactic
 
@@ -111,17 +126,93 @@ def collectAtoms (exprs : List Expr) : MetaM (Array FVarId × Std.HashMap FVarId
         fvars := fvars.push fid
   return (fvars, seen)
 
-/-- Map a Lean type expression to its Macaulay2 ring representation string. -/
-def getRingRepr (ringType : Expr) : MetaM String := do
-  let ringType ← whnf ringType
-  match ringType.constName? with
-  | some ``Int => return "ZZ"
-  | some ``Rat => return "QQ"
+/-- Information about a ring type for M2 script generation. -/
+structure RingInfo where
+  coeffRepr : String                    -- base coefficient ring ("ZZ", "QQ", "RR", "CC", "ZZ/p")
+  quotientVars : List String := []      -- extra vars from polynomial indeterminates (e.g., ["a0"])
+  quotientIdeal : Option String := none -- quotient ideal (e.g., "ideal(a0^2)")
+  isComplex : Bool := false             -- whether to use Complex.I simp lemmas in proof closure
+  useNatLiterals : Bool := false        -- use M2_in_nat (Nat exponents) instead of M2_in (Int exponents)
+
+/-- Extract a Nat literal from an Expr (handles raw literals and OfNat). -/
+private partial def getNatLit? (e : Expr) : Option Nat :=
+  match e with
+  | .lit (.natVal n) => some n
+  | .app (.const ``Nat.succ _) inner => (getNatLit? inner).map (· + 1)
   | _ =>
-    match ringType.getAppFn.constName? with
-    | some ``Int => return "ZZ"
-    | some ``Rat => return "QQ"
-    | _ => throwError m!"getRingRepr: unsupported ring type {ringType}"
+    -- Handle @OfNat.ofNat Nat n inst
+    if e.isAppOf ``OfNat.ofNat then
+      let args := e.getAppArgs
+      if args.size >= 2 then getNatLit? args[1]! else none
+    else none
+
+/-- Map a Lean type expression to its Macaulay2 ring information.
+    Checks structure before whnf to avoid losing type information (e.g., ZMod reducing to Fin). -/
+partial def getRingInfo (ringType : Expr) : Lean.Elab.Term.TermElabM RingInfo := do
+  let rt ← instantiateMVars ringType
+  -- Check structure before whnf
+  match rt.getAppFn.constName? with
+  | some ``ZMod =>
+    let args := rt.getAppArgs
+    if args.size < 1 then throwError "getRingInfo: ZMod missing argument"
+    match getNatLit? args[0]! with
+    | some p => return { coeffRepr := s!"ZZ/{p}", useNatLiterals := true }
+    | none => throwError m!"getRingInfo: ZMod argument is not a Nat literal: {args[0]!}"
+  | some ``Complex => return { coeffRepr := "CC", isComplex := true, useNatLiterals := true }
+  | some ``Polynomial =>
+    let args := rt.getAppArgs
+    if args.size < 1 then throwError "getRingInfo: Polynomial missing argument"
+    let baseInfo ← getRingInfo args[0]!
+    return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
+             useNatLiterals := true }
+  | some ``HasQuotient.Quotient =>
+    -- R ⧸ I desugars to @HasQuotient.Quotient R (Ideal R) inst I
+    let args := rt.getAppArgs
+    if args.size < 4 then throwError m!"getRingInfo: HasQuotient.Quotient has {args.size} args, expected ≥ 4"
+    let baseRingType := args[0]!
+    let idealExpr := args[3]!
+    let baseInfo ← getRingInfo baseRingType
+    -- Check if base ring is Polynomial
+    let baseRT ← instantiateMVars baseRingType
+    match baseRT.getAppFn.constName? with
+    | some ``Polynomial =>
+      -- Extract ideal generators and translate to M2
+      let generators ← parseExprIdealSpan (idealExpr.appArg!)
+      let mut genStrs : List String := []
+      for gen in generators do
+        let genStr ← toExternal `M2_out gen
+        genStrs := genStrs ++ [genStr]
+      let genList := String.intercalate ", " genStrs
+      return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
+               useNatLiterals := baseInfo.useNatLiterals,
+               quotientVars := ["a0"],
+               quotientIdeal := some s!"ideal({genList})" }
+    | _ =>
+      -- Non-polynomial quotient ring - try to extract generators
+      let generators ← parseExprIdealSpan (idealExpr.appArg!)
+      let mut genStrs : List String := []
+      for gen in generators do
+        let genStr ← toExternal `M2_out gen
+        genStrs := genStrs ++ [genStr]
+      let genList := String.intercalate ", " genStrs
+      return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
+               useNatLiterals := baseInfo.useNatLiterals,
+               quotientIdeal := some s!"ideal({genList})" }
+  | _ =>
+    -- Fall back to whnf for simple types
+    let rtw ← whnf rt
+    match rtw.constName? with
+    | some ``Int => return { coeffRepr := "ZZ" }
+    | some ``Rat => return { coeffRepr := "QQ" }
+    | some ``Real => return { coeffRepr := "RR" }
+    | some ``Complex => return { coeffRepr := "CC", isComplex := true, useNatLiterals := true }
+    | _ =>
+      match rtw.getAppFn.constName? with
+      | some ``Int => return { coeffRepr := "ZZ" }
+      | some ``Rat => return { coeffRepr := "QQ" }
+      | some ``Real => return { coeffRepr := "RR" }
+      | some ``Complex => return { coeffRepr := "CC", isComplex := true, useNatLiterals := true }
+      | _ => throwError m!"getRingInfo: unsupported ring type {ringType} (whnf: {rtw})"
 
 /-- Replace fvar user-names with M2 variable names in a translated string. -/
 def replaceVarsInM2String (s : String) (atomMap : List (String × String)) : String :=
@@ -165,15 +256,21 @@ def replaceVarsBackFromM2 (s : String) (atomNamePairs : List (String × String))
   sorted.foldl (fun acc (origName, m2Name) => acc.replace m2Name origName) withMul
 
 /-- Build the M2 script string for ideal membership checking. -/
-def buildM2Script (ringRepr : String) (atomNames : List String) (elemStr : String) (genStrs : List String) : String :=
-  let varList := String.intercalate ", " atomNames
+def buildM2Script (info : RingInfo) (atomNames : List String) (elemStr : String) (genStrs : List String) : String :=
+  let allVars := info.quotientVars ++ atomNames
+  let varList := String.intercalate ", " allVars
   let genList := String.intercalate ", " genStrs
   let lb := "{"  -- M2 brace
   let rb := "}"
+  -- Ring declaration with optional quotient ideal
+  let ringDecl := s!"R = {info.coeffRepr}[{varList}]"
+  let ringDecl := match info.quotientIdeal with
+    | some qi => ringDecl ++ " / " ++ qi
+    | none => ringDecl
   -- Strategy: compute GB with change matrix, then express f in terms of original generators
   -- CM satisfies: gens I * CM = gens GB, so coeffs_orig = CM * (f // gens GB)
   let lines := [
-    "R = " ++ ringRepr ++ "[" ++ varList ++ "]",
+    ringDecl,
     "I = ideal(" ++ genList ++ ")",
     "Gfull = gb(I, ChangeMatrix=>true)",
     "fMat = matrix" ++ lb ++ lb ++ elemStr ++ rb ++ rb,
@@ -189,6 +286,7 @@ def parseM2Output (stdout : String) (numGens : Nat) : MetaM (Bool × List String
   let lines := stdout.splitOn "\n"
     |>.map (fun s => s.trimAscii.toString)
     |>.filter (· ≠ "")
+    |>.filter (fun s => !(s.startsWith "--"))  -- filter M2 comments/warnings
 
   -- First non-empty line should be the remainder
   match lines with
@@ -242,10 +340,6 @@ elab "lean_m2" : tactic =>
     if generators.isEmpty then
       throwError "lean_m2: no generators found in ideal"
 
-    logInfo m!"lean_m2: ring type = {ringType}"
-    logInfo m!"lean_m2: element = {elem}"
-    logInfo m!"lean_m2: {generators.length} generators"
-
     -- Step 2: Collect atoms (fvars) and build name map
     let allExprs := elem :: generators
     let (atomFvars, atomIndexMap) ← collectAtoms allExprs
@@ -259,7 +353,7 @@ elab "lean_m2" : tactic =>
     let atomM2Names := atomFvars.zipIdx.toList.map (fun (_, i) => s!"x{i}")
 
     -- Step 3: Detect ring type
-    let ringRepr ← getRingRepr ringType
+    let ringInfo ← getRingInfo ringType
 
     -- Step 4: Translate elem and generators to M2 strings
     let elemStr ← toExternal `M2_out elem
@@ -271,30 +365,24 @@ elab "lean_m2" : tactic =>
       let genM2 := replaceVarsInM2String genStr atomNamePairs
       genM2Strs := genM2Strs ++ [genM2]
 
-    logInfo m!"lean_m2: M2 element = {elemM2}"
-    logInfo m!"lean_m2: M2 generators = {genM2Strs}"
-
     -- Step 5: Build M2 script
-    let script := buildM2Script ringRepr atomM2Names elemM2 genM2Strs
-
-    logInfo m!"lean_m2: M2 script:\n{script}"
+    let script := buildM2Script ringInfo atomM2Names elemM2 genM2Strs
 
     -- Step 6: Call M2
     let stdout ← callM2 script
 
-    logInfo m!"lean_m2: M2 output:\n{stdout}"
-
     -- Step 7: Parse M2 output
     let (_, coeffStrs) ← parseM2Output stdout generators.length
-
-    logInfo m!"lean_m2: coefficients = {coeffStrs}"
-
     -- Step 8: Parse coefficient strings back to Lean expressions via M2_in
+    -- Include known M2 constants (like "ii") in implicit multiplication handling
+    let extraM2Tokens := if ringInfo.isComplex then ["ii"] else []
+    let allM2Names := atomM2Names ++ extraM2Tokens
+
     let mut coeffTerms : Array (TSyntax `term) := #[]
     for coeffStr in coeffStrs do
-      let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs atomM2Names
-      logInfo m!"lean_m2: parsing coefficient: {coeffWithNames}"
-      let coeffExpr ← fromExternal' `M2_in coeffWithNames
+      let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs allM2Names
+      let m2InName := if ringInfo.useNatLiterals then `M2_in_nat else `M2_in
+      let coeffExpr ← fromExternal' m2InName coeffWithNames
       let coeffTerm ← PrettyPrinter.delab coeffExpr
       coeffTerms := coeffTerms.push coeffTerm
 
@@ -313,12 +401,11 @@ elab "lean_m2" : tactic =>
       if i < coeffTerms.size - 1 then
         -- For mem_span_insert': negate the coefficient
         let negTerm ← `(- $coeffTerm)
-        logInfo m!"lean_m2: using coefficient (negated for insert): {negTerm}"
         Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [negTerm]
       else
-        -- For mem_span_singleton': use directly
-        logInfo m!"lean_m2: using coefficient (singleton): {coeffTerm}"
         Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [coeffTerm]
 
-    -- Close with ring (simp normalizes Int.ofNat zpow exponents from M2_in parsing)
-    evalTactic (← `(tactic| simp only [Int.ofNat_eq_natCast, zpow_natCast]; ring))
+    evalTactic (← `(tactic| ring))
+    let gs ← getGoals
+    if !gs.isEmpty then
+      evalTactic (← `(tactic| aesop))

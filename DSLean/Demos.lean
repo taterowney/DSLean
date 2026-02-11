@@ -78,6 +78,50 @@ external test_lang where
 
 /- `lean_m2`: ideal membership via Macaulay2 -/
 
-example (x y : ℤ) : 2 * x + 3 * y ∈ Ideal.span {x, y} := by lean_m2
-example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by lean_m2
+-- example (x y : ℤ) : 2 * x + 3 * y ∈ Ideal.span {x, y} := by lean_m2
+example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by
+  simp only [Ideal.mem_span_insert', Ideal.mem_span_singleton']
+  use 0
+  use (x^2 + y^2)
+  ring
+  /- No goals left! -/
+
+
+example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by
+  simp only [Ideal.mem_span_insert', Ideal.mem_span_singleton']
+  use -↑(Int.ofNat 0)
+  use (x^(Int.ofNat 2) + y^(Int.ofNat 2))
+  ring
+  /-
+  x y : ℚ
+⊢ x ^ 2 * y + y ^ 2 * y = y * x ^ 2 + y ^ 3
+  -/
+
+
+example (x y : ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by  lean_m2
+
 example (x y : ℚ) : x^3 + y^3 ∈ Ideal.span {x + y} := by lean_m2
+example (x y : ℚ) : x^3 - y^3 ∈ Ideal.span {x - y} := by lean_m2
+
+/- Finite fields -/
+example (x y : ZMod 11) : x^2 + y^2 ∈ Ideal.span {x, y} := by lean_m2
+example (x y z : ZMod 3) : x^2 * y + z^3 ∈ Ideal.span {x, y, z} := by lean_m2
+example (x y : ZMod 5) : x^3 + y^3 ∈ Ideal.span {x + y} := by lean_m2
+
+/- Reals (polynomial expressions) -/
+example (x y z : ℝ) : x^2 * y + z^3 ∈ Ideal.span {x, y, z} := by lean_m2
+
+/- Complex -/
+example (z w : ℂ) : z + Complex.I * w ∈ Ideal.span {z, w} := by lean_m2
+example (x y : ℂ) : x^2 + y^2 ∈ Ideal.span {x - Complex.I * y} := by lean_m2
+
+
+/- Polynomial rings -/
+example (x y : Polynomial ℚ) : x^2 * y + y^3 ∈ Ideal.span {x, y} := by lean_m2
+example (p q : Polynomial ℤ) : p^2 * q + p * q^2 ∈ Ideal.span {p * q} := by lean_m2
+
+/- Quotient rings -/
+open Polynomial in
+example (x y : ℚ[X] ⧸ (Ideal.span {(X:ℚ[X])^2})) : x + y ∈ Ideal.span {x, y} := by lean_m2
+open Polynomial in
+example (x y : ℚ[X] ⧸ (Ideal.span {(X:ℚ[X])^2})) : x * y ∈ Ideal.span {x^3, y} := by lean_m2
