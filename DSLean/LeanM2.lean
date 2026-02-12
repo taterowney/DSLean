@@ -132,7 +132,7 @@ structure RingInfo where
   quotientVars : List String := []      -- extra vars from polynomial indeterminates (e.g., ["a0"])
   quotientIdeal : Option String := none -- quotient ideal (e.g., "ideal(a0^2)")
   isComplex : Bool := false             -- whether to use Complex.I simp lemmas in proof closure
-  useNatLiterals : Bool := false        -- use M2_in_nat (Nat exponents) instead of M2_in (Int exponents)
+  -- useNatLiterals : Bool := false        -- use M2_in_nat (Nat exponents) instead of M2_in (Int exponents)
 
 /-- Extract a Nat literal from an Expr (handles raw literals and OfNat). -/
 private partial def getNatLit? (e : Expr) : Option Nat :=
@@ -156,15 +156,14 @@ partial def getRingInfo (ringType : Expr) : Lean.Elab.Term.TermElabM RingInfo :=
     let args := rt.getAppArgs
     if args.size < 1 then throwError "getRingInfo: ZMod missing argument"
     match getNatLit? args[0]! with
-    | some p => return { coeffRepr := s!"ZZ/{p}", useNatLiterals := true }
+    | some p => return { coeffRepr := s!"ZZ/{p}" }
     | none => throwError m!"getRingInfo: ZMod argument is not a Nat literal: {args[0]!}"
-  | some ``Complex => return { coeffRepr := "CC", isComplex := true, useNatLiterals := true }
+  | some ``Complex => return { coeffRepr := "CC", isComplex := true }
   | some ``Polynomial =>
     let args := rt.getAppArgs
     if args.size < 1 then throwError "getRingInfo: Polynomial missing argument"
     let baseInfo ← getRingInfo args[0]!
-    return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
-             useNatLiterals := true }
+    return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex}
   | some ``HasQuotient.Quotient =>
     -- R ⧸ I desugars to @HasQuotient.Quotient R (Ideal R) inst I
     let args := rt.getAppArgs
@@ -184,7 +183,6 @@ partial def getRingInfo (ringType : Expr) : Lean.Elab.Term.TermElabM RingInfo :=
         genStrs := genStrs ++ [genStr]
       let genList := String.intercalate ", " genStrs
       return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
-               useNatLiterals := baseInfo.useNatLiterals,
                quotientVars := ["a0"],
                quotientIdeal := some s!"ideal({genList})" }
     | _ =>
@@ -196,7 +194,6 @@ partial def getRingInfo (ringType : Expr) : Lean.Elab.Term.TermElabM RingInfo :=
         genStrs := genStrs ++ [genStr]
       let genList := String.intercalate ", " genStrs
       return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
-               useNatLiterals := baseInfo.useNatLiterals,
                quotientIdeal := some s!"ideal({genList})" }
   | _ =>
     -- Fall back to whnf for simple types
@@ -205,13 +202,13 @@ partial def getRingInfo (ringType : Expr) : Lean.Elab.Term.TermElabM RingInfo :=
     | some ``Int => return { coeffRepr := "ZZ" }
     | some ``Rat => return { coeffRepr := "QQ" }
     | some ``Real => return { coeffRepr := "RR" }
-    | some ``Complex => return { coeffRepr := "CC", isComplex := true, useNatLiterals := true }
+    | some ``Complex => return { coeffRepr := "CC", isComplex := true}
     | _ =>
       match rtw.getAppFn.constName? with
       | some ``Int => return { coeffRepr := "ZZ" }
       | some ``Rat => return { coeffRepr := "QQ" }
       | some ``Real => return { coeffRepr := "RR" }
-      | some ``Complex => return { coeffRepr := "CC", isComplex := true, useNatLiterals := true }
+      | some ``Complex => return { coeffRepr := "CC", isComplex := true}
       | _ => throwError m!"getRingInfo: unsupported ring type {ringType} (whnf: {rtw})"
 
 /-- Replace fvar user-names with M2 variable names in a translated string. -/
@@ -381,7 +378,7 @@ elab "lean_m2" : tactic =>
     let mut coeffTerms : Array (TSyntax `term) := #[]
     for coeffStr in coeffStrs do
       let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs allM2Names
-      let m2InName := if ringInfo.useNatLiterals then `M2_in_nat else `M2_in
+      let m2InName := `M2_in
       let coeffExpr ← fromExternal' m2InName coeffWithNames
       let coeffTerm ← PrettyPrinter.delab coeffExpr
       coeffTerms := coeffTerms.push coeffTerm
