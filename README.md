@@ -38,18 +38,19 @@ external myDSL where
 
 #check fromExternal myDSL "yep" -- True
 
-#eval do logInfo <|
-  ← fromExternal' `myDSL "yep" -- True (but as an Expr)
+#eval fromExternal' `myDSL "yep" -- True (but as an Expr)
 
-#eval toExternal `myDSL (q(«False»)) -- "nope"
+#eval toExternal' `myDSL (q(«False»)) -- "nope"
 ```
+
+The translation functions `fromExternal` and `toExternal` elaborate everything automatically, while `fromExternal'` and `toExternal'` work directly with `Expr`s at the meta level and will probably be helpful when making tactics and such. 
 
 More complicated syntax containing "blanks" can also be specified:
 
 ```lean
 external myNewDSL where
     "zero" <==> 0
-    "successor" n <==> Nat.succ n
+    "successor_of" n <==> Nat.succ n
 
 #eval fromExternal myNewDSL "successor_of zero" -- 1
 ```
@@ -88,3 +89,14 @@ external myIntegerDSL (numberCast := Int.ofNat) where
 ```
 (This solution is kind of janky, I'm working on making it more intuitive)
 
+There are also some translations that can only be performed in one direction. For example, something like...
+
+```lean
+external myOneWayDSL where
+    "getFirst" a b c ==> a
+
+#check fromExternal myOneWayDSL "getFirst 1 2 3" -- 1
+```
+...can be expressed, even though the translation from `a` back to the original syntax can't be accomplished since the values of `b` and `c` would be ambiguous. This is also particularly helpful when specifying equivalences such as parentheses to indicate precedence: it's perfectly valid to add more parentheses around an expression forever since its value never changes (DSLean will generally try to avoid doing this if there are other options for ways to parse the expression, but infinite loops may occur if those aren't available). 
+
+One-way equivalences the other way can also be made with `<==`. 

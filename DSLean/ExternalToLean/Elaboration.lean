@@ -127,7 +127,7 @@ def declareExternalElaborator (kind : SyntaxNodeKind) (cat : Name) (patterns : A
 
 
 /-- Add default elaborators common to every DSL. TODO: Scientific notation. Also since `num parsing is weird, right now it automatically treats them as Nats. Might be nice to parameterize this. -/
-def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurjective? : Bool) (castFn : Expr) : CommandElabM Unit := do
+def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurjective? : Bool) (castFn : Option Expr) : CommandElabM Unit := do
   -- using a syntax quotation like `(syntax:1024 ident : $cat) errors for some reason; construct manually
   -- `(syntax:1024 (name := kindNamePlaceholder) ident : catPlaceholder)
   let kindName := externalIdentKind cat
@@ -150,7 +150,7 @@ def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurje
   elabCommand numSyntaxDecl
 
   let pat ← liftTermElabM <| (q(1) : Expr).toPattern
-  addExternalEquivalence kindName cat.getId kindName pat #[.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])]] checkInjective? checkSurjective? (some castFn)
+  addExternalEquivalence kindName cat.getId kindName pat #[.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])]] checkInjective? checkSurjective? castFn
 
   let target : TSyntax `term := mkStrLit kindName.toString
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)

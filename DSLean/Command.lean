@@ -23,9 +23,9 @@ def bijectiveDSLImpl : CommandElab := fun stx => do
   let (name, castFn, lines) ←
     match stx with
     | `(external $name:ident ( numberCast := $castFnStx:term ) where $lines:bijectiveDSLline*) =>
-      pure (name, ← liftTermElabM <| elabTerm castFnStx none, lines)
+      pure (name, some <| ← liftTermElabM <| elabTerm castFnStx none, lines)
     | `(external $name:ident where $lines:bijectiveDSLline*) =>
-      pure (name, q(fun (x:Nat) => x), lines)
+      pure (name, none, lines)
     | _ => throwUnsupportedSyntax
   if lines.size == 0 then throwUnsupportedSyntax
 
@@ -60,9 +60,9 @@ def surjectiveDSLImpl : CommandElab := fun stx => do
   let (name, castFn, lines) ←
     match stx with
     | `(external $name:ident ( numberCast := $castFnStx:term ) where $lines:surjectiveDSLline*) =>
-      pure (name, ← liftTermElabM <| elabTerm castFnStx none, lines)
+      pure (name, some <| ← liftTermElabM <| elabTerm castFnStx none, lines)
     | `(external $name:ident where $lines:surjectiveDSLline*) =>
-      pure (name, q(fun (x:Nat) => x), lines)
+      pure (name, none, lines)
     | _ => throwUnsupportedSyntax
   if lines.size == 0 then throwUnsupportedSyntax
 
@@ -98,7 +98,7 @@ def injectiveDSLImpl : CommandElab := fun stx => do
   let `(external $name where $lines:injectiveDSLline*) := stx | throwUnsupportedSyntax
   if lines.size == 0 then throwUnsupportedSyntax
 
-  initializeExternalCategory name true false q(fun (x:Nat) => x)
+  initializeExternalCategory name true false none
 
   let name := name.getId
   for line in lines do

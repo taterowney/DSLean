@@ -6,9 +6,8 @@
 - Wildcards/optional within patterns correspond to lists on the other side?
 - Could we skip the entire elaboration step by just looking at the SyntaxNodeKind?
 - Backtracking (in parsing too) for type filtration?
-- Maybe some theorems about correctness/roundtripability?
-- Better logic for `num`s/casting
-- Why no antiquot at the beginning of a line?
+- Better logic + customization for special categories
+- Antiquot at beginning of line without parentheses
 - Automatically infer precedences from Lean versions of operators
 - More readable error messages
 - No reserving random keywords (put &)

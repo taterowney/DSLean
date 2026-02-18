@@ -104,6 +104,46 @@ def Lean.Expr.traverseAll {m} [Monad m] (e : Expr) (fn : Expr → m (Option Expr
     | none => return (none, ()))
   ) >>= (fun x => pure (Prod.fst x))
 
+partial def Lean.Expr.traverseAllUnfolding {m} [Monad m] [MonadControlT MetaM m] [MonadLiftT MetaM m] [MonadError m] (e : Expr) (fn : Expr → m (Option Expr)) : m Expr := do
+  match (← fn e) with
+  | some e' => return e'
+  | none =>
+    match e with
+    | .app f arg =>
+      let f' ← traverseAllUnfolding f fn
+      let arg' ← traverseAllUnfolding arg fn
+      return .app f' arg'
+    | .lam n ty _ info =>
+      let ty' ← traverseAllUnfolding ty fn
+      lambdaBoundedTelescope e 1 fun fvar body' => do
+        let body'' ← traverseAllUnfolding body' fn
+        let created ← mkLambdaFVars fvar body''
+        match created with
+        | .lam _ _ body''' _ => pure <| .lam n ty' body''' info
+        | _ => throwError "Internal assertion failed: lambdaBoundedTelescope did not return a lambda"
+    | .forallE n ty _ info =>
+      let ty' ← traverseAllUnfolding ty fn
+      forallBoundedTelescope e (some 1) fun f body' => do
+        let body'' ← traverseAllUnfolding body' fn
+        let created ← mkForallFVars f body''
+        match created with
+        | .forallE _ _ body''' _ => pure <| .forallE n ty' body''' info
+        | _ => throwError "Internal assertion failed: forallBoundedTelescope did not return a forall"
+    | .letE n ty val body nondep =>
+      let ty' ← traverseAllUnfolding ty fn
+      let val' ← traverseAllUnfolding val fn
+      let e' := Expr.letE n ty' val' body nondep
+      letBoundedTelescope e' (some 1) fun f body' => do
+        let body'' ← traverseAllUnfolding body' fn
+        mkLetFVars f body'' nondep
+    | .mdata md e' =>
+      let e'' ← traverseAllUnfolding e' fn
+      return .mdata md e''
+    | .proj n idx struct =>
+      let struct' ← traverseAllUnfolding struct fn
+      return .proj n idx struct'
+    | _ => return e
+
 
 /-- A specific sub-expression within an `Expr` identified by a path of indices. -/
 structure ExprLocation where
@@ -346,7 +386,7 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
                   | _ => throwError m!"Unsupported antiquot args: {args}"
                 | _ => throwError m!"Unsupported syntax node kind: {k}"
               | x => throwError m!"Unsupported syntax part: {x.printdbg}"
-            return some result.trim
+            return some result.trimAscii
           else
             return none
 
@@ -367,10 +407,16 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
 
 
 /-- Translate a Lean expression `e` into external syntax according to the external syntax category `cat`. -/
-def toExternal (cat : Name) (e : Expr) : TermElabM String := do
+def toExternal' (cat : Name) (e : Expr) : TermElabM String := do
   let patterns ← liftCommandElabM <| getExternalEquivalencesForCategory cat
   let p1 :: _ := patterns.toList | throwError m!"No external equivalences found for category '{cat}'"
   unless p1.isInjective do
     throwError m!"Translation to external syntax failed: external equivalence for category '{cat}' is not injective, cannot translate from Lean expression to external syntax"
 
   translateExpr cat patterns e
+
+
+elab "toExternal " cat:ident e:term : term => do
+  let catName := cat.getId
+  let eExpr ← elabTerm e none
+  return mkStrLit (← toExternal' catName eExpr)

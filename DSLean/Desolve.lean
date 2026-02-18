@@ -11,7 +11,7 @@ import Mathlib.Analysis.Calculus.Deriv.Basic
 open Qq Lean Elab Term Command Tactic Meta
 
 
-external Sage_ODE_out where
+external desolve_out where
   "(" body ")" <== fun (x : Real) => body
   "(" body ")" <== fun (y : Real → Real) => body
   "Integer(" x ")" <== (x : Int)
@@ -25,14 +25,14 @@ external Sage_ODE_out where
   x "^" y <== x^y
   "diff(" fn "," var ")" <== deriv fn var
   "-" x <== -(x:Real)
-  "e^" x <== Real.exp x
+  "e^(" x ")" <== Real.exp x
   "log(" x ")" <== Real.log x
   "sqrt(" x ")" <== Real.sqrt x
   "sin(" x ")" <== Real.sin x
   "cos(" x ")" <== Real.cos x
   "tan(" x ")" <== Real.tan x
 
-external Sage_ODE_in where
+external desolve_in where
   "{" inside "}" ==> fun (_C _K1 _K2 x : Real) => inside
   x "+" y ==> x + y   ; (precedence := 0)
   x "-" y ==> x - y   ; (precedence := 0)
@@ -52,6 +52,14 @@ external Sage_ODE_in where
 -- def python_sage_path : String :=
 --   "/usr/local/bin/sage"
 
+
+def isODEsolution
+  (ode : Real → (Real → Real) → Prop)
+  (soln : Real → Real → Real → Real → Real) : Prop :=
+    ∀ (y : Real → Real), (∀ x, ode x y) → ∃ C K1 K2, ∀ x, y x = soln C K1 K2 x
+
+
+
 private axiom sage_sound :
   ∀ (ode : Real → (Real → Real) → Prop)
     (sage_out : Real → Real → Real → Real → Real)
@@ -59,8 +67,6 @@ private axiom sage_sound :
     sage_out = soln →
     ∀ (y : Real → Real), (∀ x, ode x y) → ∃ C K1 K2, ∀ x, y x = soln C K1 K2 x
 
-def isODEsolution (ode : Real → (Real → Real) → Prop) (soln : Real → Real → Real → Real → Real) : Prop :=
-  ∀ (y : Real → Real), (∀ x, ode x y) → ∃ C K1 K2, ∀ x, y x = soln C K1 K2 x
 
 elab "desolve" : tactic =>
   Lean.Elab.Tactic.withMainContext do
@@ -70,17 +76,17 @@ elab "desolve" : tactic =>
     let ode := target.appFn!.appArg!
     let soln := target.appArg!
 
-    let formatted := "x = var('x'); y = function('y')(x); print(desolve(" ++ (← toExternal `Sage_ODE_out ode) ++ ",y).simplify_full())"
+    let formatted := "x = var('x'); y = function('y')(x); print(desolve(" ++ (← toExternal' `desolve_out ode) ++ ",y).simplify_full())"
     let res ← IO.Process.run {
       cmd := (← IO.getEnv "DSLEAN_SAGE_PATH").getD "sage",
       args := #["-c", formatted],
       stdin := .piped, stdout := .piped, stderr := .piped
     }
 
-    let out ← fromExternal' `Sage_ODE_in ("{" ++ res ++ "}")
-    logInfo m!"Sage output: {res}, {out}"
+    let out ← fromExternal' `desolve_in ("{" ++ res ++ "}")
+    -- logInfo m!"Sage output: {res}, {out}"
 
-    let eq ← mkFreshExprMVar <| mkAppN (mkConst ``Eq [1]) #[q(Real → Real→ Real→ Real→ Real), soln, out]
+    let eq ← mkFreshExprMVar <| mkAppN (mkConst ``Eq [1]) #[q(Real → Real→ Real→ Real→ Real), out, soln]
     let term := mkAppN q(sage_sound) #[ode, out, soln, eq]
 
     let new ← (← getMainGoal).apply term

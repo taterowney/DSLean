@@ -21,7 +21,7 @@ open Std.Internal Parser Command Syntax Quote
 
 
 /-- Set up an external parser category for a DSL with this name, and add some default elaborators that are a part of every DSL. -/
-def initializeExternalCategory (cat : TSyntax `ident) (checkInjective? : Bool) (checkSujective? : Bool) (castFn : Expr) : CommandElabM Unit := do
+def initializeExternalCategory (cat : TSyntax `ident) (checkInjective? : Bool) (checkSujective? : Bool) (castFn : Option Expr) : CommandElabM Unit := do
   elabCommand (← `(declare_syntax_cat $cat))
   -- elabCommand (← `(declare_syntax_cat $cat (behavior := symbol))) -- TODO: this makes reserved keywords process as idents for some reason
 
@@ -70,6 +70,8 @@ partial def synthTCMVarsIn (e : Expr) : MetaM Expr := do
 partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option Expr := none) (depth := 0) : TermElabM Expr := do
   if depth > 1000 then throwError "Elaboration failed: exceeded maximum recursion depth while elaborating. There is likely an infinite loop in the specification for this DSL."
 
+  -- logInfo m!"ElabExternal: expected type is {expectedType?}, input is {input}"
+
   if input.getKind == (externalNumKind (mkIdent cat)) then -- Hack: `num`s are processed separately since atoms don't play nice with numbers, so just manually translate them to `Nat`s
     match input.getArg 0 with
     | .node _ `num contents =>
@@ -78,8 +80,17 @@ partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option E
         match val.toNat? with
         | some n =>
           let some e ← liftCommandElabM <| getExternalEquivalence ⟨externalNumKind (mkIdent cat)⟩ | throwError m!"Internal assertion failed: no external equivalence found for key '{externalNumKind (mkIdent cat)}'"
-          let some castFn := e.postprocess | throwError m!"Internal assertion failed: no cast function found for num syntax"
-          return mkApp castFn (mkNatLit n)
+          match e.postprocess with
+          | some castFn => return mkApp castFn (mkNatLit n)
+          | none =>
+            match expectedType? with
+            | some t =>
+              try -- Try to cast the number (as a Nat) into the expected type
+                let castInst ← synthInstance (mkApp (mkConst ``NatCast [0]) t)
+                return mkApp3 (mkConst ``NatCast.natCast [0]) t castInst (mkNatLit n)
+              catch _ => return Lean.mkNatLit n
+            | none => return mkNatLit n
+
         | _ => throwError m!"Internal assertion failed: malformed num syntax"
       | _ => throwError m!"Internal assertion failed: malformed num syntax"
     | _ => throwError m!"Internal assertion failed: malformed num syntax"
@@ -125,15 +136,16 @@ partial def elabExternal (cat : Name) (input : Syntax) (expectedType? : Option E
     synthTCMVarsIn out
 
 where blankCont (depth : Nat) (blankContents : List (Name × Syntax)) (name : Name) (expectedType? : Option Expr) : TermElabM Expr := do
+  -- logInfo m!"blankCont: expected type is {expectedType?}, looking for blank '{name}'"
   match blankContents.find? (fun (n, _) => n == name) with
   | some (_, stx) => elabExternal cat stx expectedType? (depth + 1)
   | none => throwError m!"Unification failed: no value provided for blank '{name}'"
 
 
 /-- Process (parse and elaborate) an input string according to the external syntax category `cat`. -/
-def fromExternal' (cat : Name) (input : String) : TermElabM Expr := do
+def fromExternal' (cat : Name) (input : String) (expectedType? : Option Expr := none) : TermElabM Expr := do
   let stx ← parseExternal cat input
-  elabExternal cat stx
+  elabExternal cat stx expectedType?
 
 -- TODO: how do I make these terms instead?
 elab "fromExternal" cat:ident input:str : term => do

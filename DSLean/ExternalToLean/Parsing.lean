@@ -95,11 +95,15 @@ def declareExternalSyntax (cat : Name) (patterns : Array Syntax) (options : Exte
   let mut variableNames : List Name := []
   let mut binderNames : List Name := []
   for p in patterns do
-    match p with
+    let withoutParens := match p with
+  | `(stx| ($s)) => s.raw
+  | _ => p
+
+    match withoutParens with
     | .node _ k args =>
       match k with
       | `Lean.Parser.Syntax.atom =>
-        syntaxParts := syntaxParts.push p
+        syntaxParts := syntaxParts.push withoutParens
         -- syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.nonReserved (#[(Lean.Syntax.atom default "&")] ++ args)) -- Ensure the keyword isn't reserved in Lean itself to not interrupt other stuff
       | `Lean.Parser.Syntax.cat =>
         match args.toList with

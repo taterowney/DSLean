@@ -208,6 +208,7 @@ def Lean.Expr.toPattern (e : Expr) (varNames : Array Name := #[]) (binderVarName
 
 /-- Turn an `ExprPattern` into an `Expr` by filling in the blanks with the provided expressions. -/
 partial def ExprPattern.unify (self : ExprPattern) (expectedType? : Option Expr) (blankContinuation : Name → Option Expr → TermElabM Expr) (identBlankContinuation : Name → TermElabM Name) : TermElabM Expr := do
+  -- logInfo m!".unify: expected type is {expectedType?}"
   match self with
   | .eager p =>
     let (mvars, _, e) ← openAbstractMVarsResult p.expr
@@ -224,7 +225,7 @@ where
       | some name => do
         try
           let ty ← go (← id.getType) mvars
-          let target ← blankContinuation name (some ty)
+          let target ← blankContinuation name (some (← instantiateMVars ty))
 
           id.setKind .natural -- isDefEq can't assign `syntheticOpaque`s
 
