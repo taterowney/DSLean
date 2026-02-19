@@ -225,7 +225,7 @@ where
       | some name => do
         try
           let ty ← go (← id.getType) mvars
-          let target ← blankContinuation name (some (← instantiateMVars ty))
+          let target ← blankContinuation name (some ty)
 
           id.setKind .natural -- isDefEq can't assign `syntheticOpaque`s
 

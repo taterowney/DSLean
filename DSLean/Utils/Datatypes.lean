@@ -15,6 +15,7 @@ structure ExternalEquivalence where
   isInjective : Bool
   isSurjective : Bool
   postprocess : Option Expr := none
+  priority : Int := 0
 deriving Inhabited
 
 
@@ -33,9 +34,9 @@ initialize externalEquivalenceCache : SimplePersistentEnvExtension (ExternalEqui
   }
 
 /-- Adds a new external equivalence to the cache. -/
-def addExternalEquivalence (name : Name) (syntaxCategory : Name) (stxNodeKind : SyntaxNodeKind) (exprPattern : ExprPattern) (rawSyntaxPatterns : Array Syntax) (isInjective : Bool) (isSurjective : Bool) (postprocess : Option Expr := none) : CommandElabM Unit := do
+def addExternalEquivalence (name : Name) (syntaxCategory : Name) (stxNodeKind : SyntaxNodeKind) (exprPattern : ExprPattern) (rawSyntaxPatterns : Array Syntax) (isInjective : Bool) (isSurjective : Bool) (priority : Int := 0) (postprocess : Option Expr := none) : CommandElabM Unit := do
   let key : ExternalEquivalenceKey := { name }
-  let value : ExternalEquivalence := { syntaxCategory, stxNodeKind, exprPattern, rawSyntaxPatterns, isInjective, isSurjective, postprocess }
+  let value : ExternalEquivalence := { syntaxCategory, stxNodeKind, exprPattern, rawSyntaxPatterns, isInjective, isSurjective, postprocess, priority }
   let env ← getEnv
   let newEnv := externalEquivalenceCache.addEntry env (key, value)
   setEnv newEnv
@@ -53,6 +54,10 @@ def getExternalEquivalencesForCategory (cat : Name) : CommandElabM (Array (Exter
   for (_, v) in cache.toList do
     if v.syntaxCategory == cat then
       out := out.push v
+  out := out.qsort (fun v1 v2 => match (v1.exprPattern, v2.exprPattern) with
+    | (.eager e1, .eager e2) => e1.expr.expr.hash < e2.expr.expr.hash
+    | _ => false) -- For determinism
+  out := out.qsort (fun v1 v2 => v1.priority > v2.priority) -- Higher priority first
   return out
 
 

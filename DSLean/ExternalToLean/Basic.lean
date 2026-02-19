@@ -19,5 +19,6 @@ open Std.Internal Parser Command Syntax Quote
 structure ExternalEquivalenceOptions where
   rightAssociative : Bool := false
   precedence : Int := 0
+  priority : Int := 0
 deriving Inhabited, Repr
 declare_command_config_elab elabExternalEquivalenceOptions ExternalEquivalenceOptions

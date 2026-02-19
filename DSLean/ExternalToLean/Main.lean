@@ -35,7 +35,7 @@ def declareExternal (cat : Name) (patterns : Array (TSyntax `stx)) (target : TSy
 
   let targetPat ← liftTermElabM <| target.toPattern none variableNames.toArray binderNames.toArray checkInjective? checkSujective? -- Make an ExprPattern from the target expression. This checks to make sure the variable names line up with those in the syntax patterns.
 
-  addExternalEquivalence k cat k targetPat patterns checkInjective? checkSujective? -- Add information about this equivalence to the environment
+  addExternalEquivalence k cat k targetPat patterns checkInjective? checkSujective? options.priority -- Add information about this equivalence to the environment
 
   declareExternalElaborator k cat patterns ⟨k⟩ -- Declare an elaborator for this external syntax
 

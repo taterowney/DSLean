@@ -15,7 +15,7 @@ external desolve_out where
   "(" body ")" <== fun (x : Real) => body
   "(" body ")" <== fun (y : Real → Real) => body
   "Integer(" x ")" <== (x : Int)
-  x "+" y "*0" <== (x : Real → Real) y
+  x "+" y "*0" <== (x : Real → Real) y    ; (priority := -100) -- Since the "Add something to x" function applied to `y` has the signature of `Real → Real` applied to `Real`, we don't want that to match here, so we give it a very low priority to match all other non-specified functions
   "(" lhs ")" "-" "(" rhs ")" <== lhs = rhs -- Expects everything to total to 0
 
   x "+" y <== x+y
@@ -34,7 +34,7 @@ external desolve_out where
 
 external desolve_in where
   "{" inside "}" ==> fun (_C _K1 _K2 x : Real) => inside
-  x "+" y ==> x + y   ; (precedence := 0)
+  x "+" y ==> (x:Real) + (y:Real)   ; (precedence := 0)
   x "-" y ==> x - y   ; (precedence := 0)
   x "*" y ==> x * y   ; (precedence := 1)
   x "/" y ==> x / y   ; (precedence := 1)
@@ -47,11 +47,6 @@ external desolve_in where
   "cos(" x ")" ==> Real.cos x
   "tan(" x ")" ==> Real.tan x
   "(" x ")" ==> x
-
-
--- def python_sage_path : String :=
---   "/usr/local/bin/sage"
-
 
 def isODEsolution
   (ode : Real → (Real → Real) → Prop)
@@ -83,8 +78,7 @@ elab "desolve" : tactic =>
       stdin := .piped, stdout := .piped, stderr := .piped
     }
 
-    let out ← fromExternal' `desolve_in ("{" ++ res ++ "}")
-    -- logInfo m!"Sage output: {res}, {out}"
+    let out ← fromExternal' `desolve_in ("{" ++ res.replace "^" "^ " ++ "}") -- For some reason Lean's parser really doesn't like "^"s followed by "("s without a space
 
     let eq ← mkFreshExprMVar <| mkAppN (mkConst ``Eq [1]) #[q(Real → Real→ Real→ Real→ Real), out, soln]
     let term := mkAppN q(sage_sound) #[ode, out, soln, eq]

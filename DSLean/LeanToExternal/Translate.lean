@@ -156,41 +156,44 @@ instance : ToMessageData ExprLocation where
     m!"ExprLocation(path={loc.path}, e={loc.e.printdbg})"
 
 /-- Given a sub-expression, find it and run `fn`. Also telescopes all the surrounding binders so the sub-expression doesn't have hanging bvars. -/
-partial def ExprLocation.telescopeAll (loc : ExprLocation) (fn : Expr → β → TermElabM α) (input : β) : TermElabM α := do
+partial def ExprLocation.telescopeAll (loc : ExprLocation) (fn : Expr → β → Nat → TermElabM α) (input : β) (depth : Nat := 0) : TermElabM α := do
+  if depth > 500 then
+    throwError m!"Exceeded maximum recursion depth when telescoping expression {loc.e}. There's probably an infinite loop in the DSL somewhere."
+  -- logInfo m!"At expression {loc.e} ({loc.e.printdbg}), path {loc.path}"
   match loc.path with
-  | [] => fn loc.e input
+  | [] => fn loc.e input depth
   | idx :: rest =>
     match loc.e with
     | .lam n ty _ _ =>
       if idx == 0 then
-        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input
+        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
       else
         lambdaBoundedTelescope loc.e 1 fun fvar body' => do
           withLCtx' ((← getLCtx).setUserName fvar[0]!.fvarId! n) do -- Set the name of the bound variable in the local context
-            (⟨body', rest⟩ : ExprLocation).telescopeAll fn input
+            (⟨body', rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
     | .forallE _ ty _ _ =>
       if idx == 0 then
-        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input
+        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
       else
         forallBoundedTelescope loc.e (some 1) fun _ body =>
-          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input
+          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
     | .letE _ ty val _ _ =>
       if idx == 0 then
-        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input
+        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
       else if idx == 1 then
-        (⟨val, rest⟩ : ExprLocation).telescopeAll fn input
+        (⟨val, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
       else
         letBoundedTelescope loc.e (some 1) fun _ body =>
-          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input
+          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
     | .app f a =>
       if idx == 0 then
-        (⟨f, rest⟩ : ExprLocation).telescopeAll fn input
+        (⟨f, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
       else
-        (⟨a, rest⟩ : ExprLocation).telescopeAll fn input
+        (⟨a, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
     | .mdata _ e' =>
-      (⟨e', rest⟩ : ExprLocation).telescopeAll fn input
+      (⟨e', rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
     | .proj _ _ struct =>
-      (⟨struct, rest⟩ : ExprLocation).telescopeAll fn input
+      (⟨struct, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
     | _ => throwError "ExprLocation.telescopeAll: invalid path"
 
 
@@ -296,9 +299,10 @@ do
 
 -- TODO: is there a less jank way to handle `binderRenames`? Does this always work if variables are shadowed later?
 
+
 /-- Given an expression, translate it into an external representation using the rules defined in the externalSyntax `cat`, recursively filling in "blanks". -/
-partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e : Expr) (binderRenames : Std.HashMap Name String := {}) (depth := 0) : TermElabM String := do
-  if depth > 1000 then
+partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e : Expr) (binderRenames : Std.HashMap Name String := {}) (depth : Nat := 0) : TermElabM String := do
+  if depth > 500 then
     throwError m!"Exceeded maximum recursion depth when translating expression {e}. There's probably an infinite loop in the DSL somewhere."
 
   let pattern_contents ← patterns.filterMapM (fun pat => do
@@ -308,6 +312,7 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
       let (_, _, patExpr, blankMap) ← p.unpackExpr
       pure <| some (pat, patExpr, blankMap)
     )
+
   let pattern_contents := pattern_contents.qsort (fun (_, e, _) _ => -- TODO: put "no-op" patterns at the end too?
     if e.isLambda || e.isForall || e.isLet then false else true
   ) -- Try simpler patterns first; `isDefEq` can change any expression to match `lambda`s etc via reductions and whatnot
@@ -344,12 +349,20 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
       try
         let out ← withoutModifyingMCtx do
 
+          let e_old := e
           if (← isDefEqGuarded pat_expr e) then
-            -- logInfo m!"Matched! Pattern is now {← instantiateMVars pat_expr}"
+            -- if pat_expr.isLambda then
+            --   logInfo m!"Matched lambda pattern! original: {e_old}, new: {e} -> {← Core.betaReduce (← instantiateMVars e)}"
+              -- if e_old == (← Core.betaReduce (← instantiateMVars e)) then
+              --   throwError m!"Expression is already in the right form, no beta reduction needed"
 
-            let processBlank := fun e br => do translateExpr cat patterns (← Core.betaReduce (← instantiateMVars e)) br (depth + 1)
+            let processBlank := fun e' br depth' => do
+              -- logInfo m!"Processing blanks. Started with {e_old}, changed to {e}, one of the blanks was {e'}"
+              if ← isDefEqGuarded e_old e' then
+                throwError m!"Performed no reduction! started with {e_old}, changed to {e}, one of the blanks was {e'}"
+              translateExpr cat patterns (← Core.betaReduce (← instantiateMVars e')) br (depth' + 1)
 
-            let filledMap := Std.HashMap.ofList <| newBlankMap.values.map (fun (n, loc) =>  (n, loc.telescopeAll processBlank))
+            let filledMap := Std.HashMap.ofList <| newBlankMap.values.map (fun (n, loc) => (n, loc.telescopeAll processBlank (depth := depth + 1)))
 
 
             let mut result := ""
@@ -364,7 +377,7 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
                   | .node _ _ atomArgs :: _ =>
                     match atomArgs.toList with
                     | (.atom _ raw ) :: _ => -- If this part of the pattern is just a literal, put it in the output directly
-                      result := result ++ " " ++ (raw.take (raw.length - 1) |>.takeRight (raw.length - 2)) -- Strip away the quotes
+                      result := result ++ " " ++ (raw.take (raw.length - 1) |>.takeEnd (raw.length - 2)) -- Strip away the quotes
                     | _ => throwError m!"Unable to turn atom pattern into string: {atomArgs.map (fun x => x.printdbg)}"
                   | _ => throwError m!"Unable to turn atom pattern into string: {args.map (fun x => x.printdbg)}"
                 | `Lean.Parser.Syntax.cat =>
@@ -416,7 +429,7 @@ def toExternal' (cat : Name) (e : Expr) : TermElabM String := do
   translateExpr cat patterns e
 
 
-elab "toExternal " cat:ident e:term : term => do
+elab "toExternal" cat:ident e:term : term => do
   let catName := cat.getId
   let eExpr ← elabTerm e none
   return mkStrLit (← toExternal' catName eExpr)

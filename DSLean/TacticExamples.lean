@@ -8,18 +8,6 @@ open Lean Meta Qq
 
 
 
--- example (y : ℝ) :
---   y ∈ Set.Icc 0 1 →
---   y * (1-y) ∈ Set.Icc 0 0.5 := by
---     gappa
---     · Gappa_reduce_arrows
---       nlinarith
---     · Gappa_reduce_arrows
---       nlinarith
---     Gappa_reduce_arrows
---     nlinarith
-
-
 -- example (a b c : Real) :
 --   c ∈ Set.Icc (-0.3 : Real) (-0.1 : Real) ∧
 --   (2 * a ∈ Set.Icc 3 4 → b + c ∈ Set.Icc 1 2) ∧
@@ -33,6 +21,19 @@ open Lean Meta Qq
 --   y * y * y ∈ Set.Icc 0 1 := by
 --     gappa
 --     · Gappa_simplify
+
+
+-- example (y : ℝ) :
+--   y ∈ Set.Icc 0 1 →
+--   y * (1-y) ∈ Set.Icc 0 0.5 := by
+--     gappa
+--     · Gappa_reduce_arrows
+--       nlinarith
+--     Gappa_reduce_arrows
+--     nlinarith
+
+
+
 
 /- `desolve`: ordinary differential equations -/
 

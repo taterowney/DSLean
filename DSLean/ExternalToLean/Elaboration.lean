@@ -150,7 +150,7 @@ def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurje
   elabCommand numSyntaxDecl
 
   let pat ← liftTermElabM <| (q(1) : Expr).toPattern
-  addExternalEquivalence kindName cat.getId kindName pat #[.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])]] checkInjective? checkSurjective? castFn
+  addExternalEquivalence kindName cat.getId kindName pat #[.node default `Lean.Parser.Syntax.cat #[(mkIdent `num), (Lean.Syntax.node default `null #[])]] checkInjective? checkSurjective? (postprocess := castFn)
 
   let target : TSyntax `term := mkStrLit kindName.toString
   let attr ← `(attrInstance| $(mkIdent `external_elab):ident $(← mkIdentFromRef kindName):ident)
