@@ -3,7 +3,26 @@
 `DSLean` aims to provide a powerful and intuitive interface for communication between the Lean theorem prover and arbitrary DSLs, solvers, and languages. Given a specification of an external language and each component's Lean equivalent, `DSLean` automatically translates back and forth between syntatically correct expressions and type-correct Lean objects. No messing around with the trivialities of parsing and elaboration is required. 
 
 
-### Installation
+### Quick Start (Docker)
+
+The easiest way to try DSLean is with the provided Docker setup, which bundles Lean, Gappa, SageMath, and Macaulay2 so you don't need to install anything yourself.
+
+**Option A — VS Code Dev Container (recommended):**
+1. Install [Docker](https://www.docker.com/) and the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) VS Code extension.
+2. Open this repository in VS Code.
+3. When prompted, click **"Reopen in Container"** (or run the command `Dev Containers: Reopen in Container` from the command palette).
+4. Wait for the container to build — this will install all dependencies and run `lake build`. The first build takes a while since it pulls Mathlib, but subsequent opens are fast.
+5. Once the build finishes, open any `.lean` file (e.g. `DSLean/TacticExamples.lean`) and the Lean 4 extension will work out of the box.
+
+**Option B — Plain Docker:**
+```bash
+docker build -t dslean .
+docker run -it dslean
+```
+
+> **Note:** The image is large (~several GB) due to SageMath and Mathlib. The first build will take some time.
+
+### Manual Installation
 
 This project uses Lean 4.27.0. Make sure Lean is installed, then run:
 
@@ -24,7 +43,7 @@ Additionally, depending on which tactics you may want to use, you'll want to ins
  - [SageMath](https://doc.sagemath.org/html/en/installation/)
  - [Macaulay2](https://www.macaulay2.com/Downloads/)
 
-Make sure the default commands to run these programs are available in your environment (`gappa`, `sage`, `macaulay2`), or specify an installation to use by setting the `DSLEAN_GAPPA_PATH`, `DSLEAN_SAGE_PATH`, and/or `DSLEAN_M2_PATH` environment variables (e.g. by adding `export DSLEAN_GAPPA_PATH=/path/to/gappa/executable` to your `.bashrc` file or equivalent). 
+Make sure the default commands to run these programs are available in your environment (`gappa`, `sage`, `M2`), or specify an installation to use by setting the `DSLEAN_GAPPA_PATH`, `DSLEAN_SAGE_PATH`, and/or `DSLEAN_M2_PATH` environment variables (e.g. by adding `export DSLEAN_GAPPA_PATH=/path/to/gappa/executable` to your `.bashrc` file or equivalent).
 
 
 ### Making a DSL

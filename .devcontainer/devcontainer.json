@@ -1,0 +1,24 @@
+{
+  "name": "DSLean",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "leanprover.lean4"
+      ],
+      "settings": {
+        "lean4.toolchainPath": "",
+        "lean4.lakeEnabled": true
+      }
+    }
+  },
+  "workspaceFolder": "/workspace",
+  "remoteEnv": {
+    "DSLEAN_GAPPA_PATH": "/usr/bin/gappa",
+    "DSLEAN_M2_PATH": "/usr/bin/M2",
+    "DSLEAN_SAGE_PATH": "/usr/bin/sage"
+  },
+  "postCreateCommand": "lake exe cache get && lake build"
+}
