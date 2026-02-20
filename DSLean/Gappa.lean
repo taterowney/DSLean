@@ -49,30 +49,12 @@ elab "simplify_hyps" : tactic => withMainContext do
 macro "gappa_normalize" : tactic => `(tactic| unfold_local <;> intros <;> simplify_hyps <;> norm_num at * <;> try constructor)
 macro "gappa_sqrt_ineq" : tactic => `(tactic| try apply (sq_le_sq₀ (by norm_num) (by norm_num)).mp <;> simp only [Nat.ofNat_nonneg, Real.sq_sqrt] <;> norm_num at *; try apply (sq_lt_sq₀ (by norm_num) (by norm_num)).mp <;> simp only [Nat.ofNat_nonneg, Real.sq_sqrt] <;> norm_num at *)
 
--- macro "gappa_constant_bound" : tactic => `(tactic| gappa_normalize <;> simp_all)
--- macro "sqrtG" : tactic => `(tactic| unfold_local <;> Gappa_sqrt_ineq)
--- macro "mul_pp" : tactic => `(tactic| unfold_local <;> (try linarith) <;> Gappa_sqrt_ineq)
--- macro "gappa_simplify" : tactic => `(tactic| gappa_normalize <;> (try linarith) <;> Gappa_sqrt_ineq)
+macro "gappa_constant_bound" : tactic => `(tactic| gappa_normalize <;> (try simp_all))
+macro "gappa_mul_generic" : tactic => `(tactic| (try linarith) <;> gappa_sqrt_ineq <;>
+  (try (refine mul_nonneg ?_ ?_ <;> linarith)) <;>
+  try nlinarith) -- nlinarith easily one-shots most of these goals, but its very expensive so we put it behind some heuristics
 
-elab "gappa_constant_bound" : tactic => withMainContext do
-  evalTactic (← `(tactic| gappa_normalize <;> (try simp_all)))
-  let goals ← getGoals
-  -- if !goals.isEmpty then
-  --   logInfo m!"gappa_constant_bound failed to solve {goals.length} goals:\n\n {goals}"
-
-
--- TODO: something like
---       rw [← mul_one (1/2)]
---       refine mul_le_mul ?_ ?_ ?_ ?_ <;> norm_num <;> try linarith
-
-elab "gappa_mul_generic" : tactic => withMainContext do
-  evalTactic (← `(tactic| (try linarith) <;> gappa_sqrt_ineq <;>
-    (try (refine mul_nonneg ?_ ?_ <;> linarith)) <;>
-    try nlinarith)) -- nlinarith easily one-shots most of these goals, but its very expensive so we put it behind some heuristics
-  let goals ← getGoals
-  -- if !goals.isEmpty then
-  --   logInfo m!"gappa_mul_generic failed to solve {goals.length} goals:\n\n {goals}"
-
+/-- Attempts to simplify Pi types by synthesizing an object of the binder type and applying it -/
 elab "gappa_reduce_arrows" : tactic => withMainContext do
   evalTactic (← `(tactic| simplify_hyps))
   discard <| (← getLCtx).getFVarIds.mapM (fun id => do
@@ -82,32 +64,12 @@ elab "gappa_reduce_arrows" : tactic => withMainContext do
       let inst ← mkFreshExprMVar src
       if (← evalTacticAt (← `(tactic| try gappa_mul_generic)) inst.mvarId!).isEmpty then
         let (_, new) ← (← getMainGoal).assertHypotheses #[{userName := (← getUnusedUserName `h), type := tgt, value := mkApp (.fvar id) (← instantiateMVars inst)}]
-        replaceMainGoal [new]
+        replaceMainGoal [new])
 
-    -- If the goal is False and we have a strict inequality in the context, Gappa has done some contradiction shenanigans, so we place the relevant inequality back as the goal so our automation can work with it
-    -- let ty ← id.getType
-    -- if (← (← getMainGoal).getType).isFalse && (← id.isLetVar true) && ty.isAppOf' ``LT.lt then
-    --   evalTactic (← `(tactic| try suffices h : $(ty.delab) by linarith; push_neg))
+macro "gappa_sqrtG" : tactic => `(tactic| gappa_normalize <;> gappa_sqrt_ineq)
+macro "gappa_simplify" : tactic => `(tactic| gappa_normalize <;> (try linarith) <;> gappa_sqrt_ineq <;> gappa_mul_generic <;> gappa_reduce_arrows <;> gappa_mul_generic)
+macro "gappa_mul_pp" : tactic => `(tactic| gappa_normalize <;> (try simp [abs_le] at *) <;> gappa_sqrt_ineq <;> gappa_mul_generic <;> gappa_reduce_arrows <;> gappa_mul_generic)
 
-    )
-
-elab "gappa_sqrtG" : tactic => withMainContext do
-  evalTactic (← `(tactic| gappa_normalize <;> gappa_sqrt_ineq))
-  let goals ← getGoals
-  -- if !goals.isEmpty then
-  --   logInfo m!"gappa_sqrtG failed to solve {goals.length} goals:\n\n {goals}"
-
-elab "gappa_simplify" : tactic => withMainContext do
-  evalTactic (← `(tactic| gappa_normalize <;> (try linarith) <;> gappa_sqrt_ineq <;> gappa_mul_generic <;> gappa_reduce_arrows <;> gappa_mul_generic))
-  let goals ← getGoals
-  -- if !goals.isEmpty then
-  --   logInfo m!"gappa_simplify failed to solve {goals.length} goals:\n\n {goals}"
-
-elab "gappa_mul_pp" : tactic => withMainContext do
-  evalTactic (← `(tactic| gappa_normalize <;> (try simp [abs_le] at *) <;> gappa_sqrt_ineq <;> gappa_mul_generic <;> gappa_reduce_arrows <;> gappa_mul_generic))
-  let goals ← getGoals
-  -- if !goals.isEmpty then
-  --   logInfo m!"gappa_mul_pp failed to solve {goals.length} goals:\n\n {goals}"
 
 external Gappa_output (numberCast := Int.ofNat) where
   x "->" y   ==> x → y; +rightAssociative

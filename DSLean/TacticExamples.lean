@@ -19,7 +19,9 @@ example (y : ℝ) :
   y ∈ Set.Icc 0 1 →
   y * y * y ∈ Set.Icc 0 1 := by
     gappa
-    gappa_simplify
+    expose_names
+    have := right (by nlinarith)
+    nlinarith
 
 
 example (y : ℝ) :

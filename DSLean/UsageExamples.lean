@@ -1,4 +1,5 @@
 import DSLean.Command
+set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
 
 
 external translate_Python where
