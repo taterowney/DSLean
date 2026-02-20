@@ -1,41 +1,8 @@
 import Lean
 
 
-open Lean Meta Tactic Elab Meta Term Tactic Expr Lean.Meta.Tactic.TryThis
+open Lean Meta Elab Term Tactic Expr Lean.Meta.Tactic.TryThis
 
-
-partial def collectUnknownIdents (stx : Syntax) : TermElabM (Array Syntax) := do
-  let mut bad := #[]
-  if stx.isIdent then
-    let tryResolve : TermElabM Unit := do
-      let res ← Term.resolveId? stx
-      if (!res.isSome) then
-        throwError "Unresolved identifier"
-      pure ()
-    try
-      tryResolve
-    catch _ =>
-      bad := bad.push stx
-  for c in stx.getArgs do
-    bad := bad ++ (← collectUnknownIdents c)
-  return bad
-
-
-partial def replaceUnknownIdents (stx : Syntax) : TermElabM (Syntax) := do
-  if stx.isIdent then
-    let tryResolve : TermElabM Syntax := do
-      let res ← Term.resolveId? stx
-      if (!res.isSome) then
-        throwError "Unresolved identifier"
-      pure stx
-    try
-      return (← tryResolve)
-    catch _ =>
-      return Lean.mkHole stx
-  let mut out := stx
-  for (c, i) in List.zipIdx <| stx.getArgs.toList do
-    out := out.setArg i (← replaceUnknownIdents c)
-  return out
 
 
 /-- Loop through a Syntax object and replace unknown identifiers with holes (elaborated to synthetic mvars). Returns a list of the names of the replaced identifiers. -/
@@ -80,7 +47,7 @@ Execute `k`, and collect new "holes" in the resulting expression.
 * `parentTag` and `tagSuffix` are used to tag untagged goals with `Lean.Elab.Tactic.tagUntaggedGoals`.
 * If `allowNaturalHoles` is true, then `_`'s are allowed and create new goals.
 -/
-def TermElabM.withCollectingNewGoalsFrom (k : TermElabM Expr) (parentTag : Name) (tagSuffix : Name) (allowNaturalHoles := false) : TermElabM (Expr × List MVarId) :=
+def TermElabM.withCollectingNewGoalsFrom (k : TermElabM Expr) (_ : Name) (_ : Name) (allowNaturalHoles := false) : TermElabM (Expr × List MVarId) :=
   /-
   When `allowNaturalHoles = true`, unassigned holes should become new metavariables, including `_`s.
   Thus, we set `holesAsSyntheticOpaque` to true if it is not already set to `true`.
@@ -120,7 +87,7 @@ where
     /- If `allowNaturalHoles := false`, all natural mvarIds must be assigned.
     Passing this guard ensures that `newMVarIds` does not contain unassigned natural mvars. -/
     unless allowNaturalHoles do
-      let naturalMVarIds ← newMVarIds.filterM fun mvarId => return (← mvarId.getKind).isNatural
+      let _ ← newMVarIds.filterM fun mvarId => return (← mvarId.getKind).isNatural
       -- logUnassignedAndAbort naturalMVarIds
     /-
     We sort the new metavariable ids by index to ensure the new goals are ordered using the order the metavariables have been created.

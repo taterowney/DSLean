@@ -1,3 +1,4 @@
+/- The `lean_m2` tactic, for proving ideal membership in a wide variety of rings -/
 import DSLean.Command
 import Mathlib.Data.Nat.Basic
 import Mathlib.Data.Nat.Factorial.Basic
@@ -11,7 +12,22 @@ import Mathlib.RingTheory.Polynomial.Basic
 import Mathlib.Tactic.Ring
 import Mathlib.Tactic.Use
 
+open Lean Meta Elab Term Command Tactic
+
+-- M2 string → Lean Expr (surjective, for parsing M2 coefficient output back to Lean)
+external M2_in where
+  x "+" y   ==> x + y   ; (precedence := 0)
+  x "-" y   ==> x - y   ; (precedence := 0)
+  x "*" y   ==> x * y   ; (precedence := 1)
+  x "/" y   ==> x / y   ; (precedence := 1)
+  x "^" y   ==> x ^ y   ; (precedence := 2)
+  "-" x     ==> - x
+  "(" x ")" ==> x
+  "ii"       ==> Complex.I
+
+
 -- Lean → M2 string (injective, for serializing polynomials to Macaulay2 syntax)
+set_option linter.unusedVariables false
 external M2_out where
   "(" x "+" y ")" <== x + y
   "(" x "-" y ")" <== x - y
@@ -37,24 +53,7 @@ external M2_out where
   "CC" <== ℂ
   R "/" x <== R ⧸ Ideal.span ({x} : Set R)
 
--- M2 string → Lean Expr (surjective, for parsing M2 coefficient output back to Lean)
-external M2_in where
-  x "+" y   ==> x + y   ; (precedence := 0)
-  x "-" y   ==> x - y   ; (precedence := 0)
-  x "*" y   ==> x * y   ; (precedence := 1)
-  x "/" y   ==> x / y   ; (precedence := 1)
-  x "^" y   ==> x ^ y   ; (precedence := 2)
-  "-" x     ==> - x
-  "(" x ")" ==> x
-  "ii"       ==> Complex.I
-
-
-
-
-open Lean Meta Elab Term Command Tactic
-
-private def strContains (s : String) (sub : String) : Bool :=
-  (s.splitOn sub).length > 1
+/- Because of Macaulay2's really weird output format, there's some manual parsing that needs to be done to make it look anything like a reasonable grammar -/
 
 /-- Extract the element and ideal set from a goal of the form `elem ∈ Ideal.span S`.
     Returns `(ringType, setExpr, elemExpr)`. -/
@@ -63,7 +62,6 @@ def getMem (goal : Expr) : MetaM (Expr × Expr × Expr) := do
   let goal ← instantiateMVars goal
   match goal.getAppFn.constName? with
   | some ``Membership.mem =>
-    -- @Membership.mem R (Ideal R) inst (Ideal.span S) elem
     let args := goal.getAppArgs
     if args.size < 5 then throwError "getMem: unexpected number of arguments to Membership.mem ({args.size})"
     let ringType := args[0]!
@@ -114,17 +112,17 @@ partial def parseExprIdealSpan (setExpr : Expr) : MetaM (List Expr) := do
   | _ =>
     throwError m!"parseExprIdealSpan: unsupported set expression (head: {setExpr.getAppFn})"
 
-/-- Collect all unique free variables from a list of expressions. -/
-def collectAtoms (exprs : List Expr) : MetaM (Array FVarId × Std.HashMap FVarId Nat) := do
-  let mut seen : Std.HashMap FVarId Nat := {}
-  let mut fvars : Array FVarId := #[]
+/-- Collect all unique free variables from a list of expressions,
+    returning pairs of (original name, M2 name). -/
+def collectAtomNames (exprs : List Expr) : MetaM (List (String × String)) := do
+  let mut seen : Std.HashSet FVarId := {}
+  let mut pairs : Array (String × String) := #[]
   for e in exprs do
-    let state := (← e.collectFVars.run {}).2
-    for fid in state.fvarIds do
+    for fid in (← e.collectFVars.run {}).2.fvarIds do
       unless seen.contains fid do
-        seen := seen.insert fid fvars.size
-        fvars := fvars.push fid
-  return (fvars, seen)
+        seen := seen.insert fid
+        pairs := pairs.push ((← fid.getUserName).toString, s!"x{pairs.size}")
+  return pairs.toList
 
 /-- Information about a ring type for M2 script generation. -/
 structure RingInfo where
@@ -171,86 +169,32 @@ partial def getRingInfo (ringType : Expr) : Lean.Elab.Term.TermElabM RingInfo :=
     let baseRingType := args[0]!
     let idealExpr := args[3]!
     let baseInfo ← getRingInfo baseRingType
-    -- Check if base ring is Polynomial
-    let baseRT ← instantiateMVars baseRingType
-    match baseRT.getAppFn.constName? with
-    | some ``Polynomial =>
-      -- Extract ideal generators and translate to M2
-      let generators ← parseExprIdealSpan (idealExpr.appArg!)
-      let mut genStrs : List String := []
-      for gen in generators do
-        let genStr ← toExternal' `M2_out gen
-        genStrs := genStrs ++ [genStr]
-      let genList := String.intercalate ", " genStrs
-      return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
-               quotientVars := ["a0"],
-               quotientIdeal := some s!"ideal({genList})" }
-    | _ =>
-      -- Non-polynomial quotient ring - try to extract generators
-      let generators ← parseExprIdealSpan (idealExpr.appArg!)
-      let mut genStrs : List String := []
-      for gen in generators do
-        let genStr ← toExternal' `M2_out gen
-        genStrs := genStrs ++ [genStr]
-      let genList := String.intercalate ", " genStrs
-      return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
-               quotientIdeal := some s!"ideal({genList})" }
+    let generators ← parseExprIdealSpan (idealExpr.appArg!)
+    let genStrs ← generators.mapM (toExternal' `M2_out)
+    let genList := ", ".intercalate genStrs
+    let isPoly := (← instantiateMVars baseRingType).getAppFn.constName? == some ``Polynomial
+    return { coeffRepr := baseInfo.coeffRepr, isComplex := baseInfo.isComplex,
+             quotientVars := if isPoly then ["a0"] else [],
+             quotientIdeal := some s!"ideal({genList})" }
   | _ =>
     -- Fall back to whnf for simple types
     let rtw ← whnf rt
-    match rtw.constName? with
+    let name? := rtw.constName? <|> rtw.getAppFn.constName?
+    match name? with
     | some ``Int => return { coeffRepr := "ZZ" }
     | some ``Rat => return { coeffRepr := "QQ" }
     | some ``Real => return { coeffRepr := "RR" }
-    | some ``Complex => return { coeffRepr := "CC", isComplex := true}
-    | _ =>
-      match rtw.getAppFn.constName? with
-      | some ``Int => return { coeffRepr := "ZZ" }
-      | some ``Rat => return { coeffRepr := "QQ" }
-      | some ``Real => return { coeffRepr := "RR" }
-      | some ``Complex => return { coeffRepr := "CC", isComplex := true}
-      | _ => throwError m!"getRingInfo: unsupported ring type {ringType} (whnf: {rtw})"
+    | some ``Complex => return { coeffRepr := "CC", isComplex := true }
+    | _ => throwError m!"getRingInfo: unsupported ring type {ringType} (whnf: {rtw})"
 
 /-- Replace fvar user-names with M2 variable names in a translated string. -/
 def replaceVarsInM2String (s : String) (atomMap : List (String × String)) : String :=
   atomMap.foldl (fun acc (origName, m2Name) => acc.replace origName m2Name) s
 
-/-- Insert explicit `*` between adjacent M2 variable names (e.g., "x0x1" → "x0*x1"),
-    between a number and a variable (e.g., "3x0" → "3*x0"),
-    and between a variable and a number. -/
-def insertExplicitMul (s : String) (atomNames : List String) : String := Id.run do
-  -- Sort by length descending to replace longer names first
-  let sorted := atomNames.toArray.qsort (fun a b => a.length > b.length)
-  -- First pass: replace each atom name with a tagged version
-  let mut result := s
-  for name in sorted do
-    result := result.replace name s!"«{name}»"
-  -- Now insert * between adjacent tagged names, or number«name» patterns
-  -- Pattern: »« means two adjacent variables, digit« means number*var
-  result := result.replace "»«" "»*«"
-  -- Handle number followed by variable: e.g., "3«x0»" → "3*«x0»"
-  let mut chars := result.toList
-  let mut output : List Char := []
-  for i in List.range chars.length do
-    let c := chars[i]!
-    if c == '«' && i > 0 then
-      let prev := chars[i-1]!
-      if prev.isDigit then
-        output := output ++ ['*']
-    output := output ++ [c]
-  result := String.mk output
-  -- Remove tags
-  result := result.replace "«" "" |>.replace "»" ""
-  result
-
-/-- Replace M2 variable names back with fvar user-names. Replaces longer names first.
-    Also inserts explicit `*` for M2's implicit multiplication. -/
-def replaceVarsBackFromM2 (s : String) (atomNamePairs : List (String × String)) (atomM2Names : List String) : String :=
-  -- First insert explicit multiplication between adjacent M2 var names
-  let withMul := insertExplicitMul s atomM2Names
-  -- Then replace M2 names with original names (longer first)
+/-- Replace M2 variable names back with fvar user-names. Replaces longer names first. -/
+def replaceVarsBackFromM2 (s : String) (atomNamePairs : List (String × String)) : String :=
   let sorted := atomNamePairs.toArray.qsort (fun (_, m2a) (_, m2b) => m2a.length > m2b.length)
-  sorted.foldl (fun acc (origName, m2Name) => acc.replace m2Name origName) withMul
+  sorted.foldl (fun acc (origName, m2Name) => acc.replace m2Name origName) s
 
 /-- Build the M2 script string for ideal membership checking. -/
 def buildM2Script (info : RingInfo) (atomNames : List String) (elemStr : String) (genStrs : List String) : String :=
@@ -271,45 +215,28 @@ def buildM2Script (info : RingInfo) (atomNames : List String) (elemStr : String)
     "I = ideal(" ++ genList ++ ")",
     "Gfull = gb(I, ChangeMatrix=>true)",
     "fMat = matrix" ++ lb ++ lb ++ elemStr ++ rb ++ rb,
-    "print(fMat % gens Gfull)",
-    "print((getChangeMatrix Gfull) * (fMat // gens Gfull))"
+    "print(toString((fMat % gens Gfull)_(0,0)))",
+    "coeffVec = (getChangeMatrix Gfull) * (fMat // gens Gfull)",
+    "scan(numrows coeffVec, i -> print(toString(coeffVec_(i,0))))"
   ]
   String.intercalate "\n" lines ++ "\n"
 
-/-- Parse M2 stdout from `--script` mode with `print` statements.
-    First print: remainder (should be "0")
-    Second print: column vector of coefficients, one per line as `{deg} | coeff |` -/
+/-- Parse M2 stdout from `--script` mode with `print(toString(...))` statements.
+    First line: remainder (should be "0")
+    Remaining lines: one coefficient per line (plain expressions with explicit `*`). -/
 def parseM2Output (stdout : String) (numGens : Nat) : MetaM (Bool × List String) := do
   let lines := stdout.splitOn "\n"
     |>.map (fun s => s.trimAscii.toString)
     |>.filter (· ≠ "")
-    |>.filter (fun s => !(s.startsWith "--"))  -- filter M2 comments/warnings
-
-  -- First non-empty line should be the remainder
+    |>.filter (fun s => !(s.startsWith "--"))
   match lines with
   | [] => throwError "lean_m2: no output from Macaulay2"
   | remLine :: coeffLines =>
-    let remainderIsZero := remLine.trimAscii.toString == "0"
-    unless remainderIsZero do
+    unless remLine == "0" do
       throwError m!"lean_m2: Macaulay2 reports nonzero remainder ({remLine}) — element is not in the ideal"
-
-    -- Parse coefficient lines: each looks like "{1} | coeff_expr |"
-    -- or for a 1×1 matrix: "| coeff_expr |"
-    let mut coeffs : List String := []
-    for line in coeffLines do
-      if strContains line "|" then
-        -- Extract content between | delimiters
-        let parts := line.splitOn "|" |>.map (fun s => s.trimAscii.toString) |>.filter (· ≠ "")
-        -- The last non-empty part between |s is the coefficient
-        -- For "{1} | coeff |", parts = ["{1}", "coeff"] or just ["coeff"]
-        match parts.reverse with
-        | coeff :: _ => coeffs := coeffs ++ [coeff]
-        | [] => pure ()
-
-    if coeffs.length != numGens then
-      throwError m!"lean_m2: expected {numGens} coefficients from M2, got {coeffs.length}. Raw output:\n{stdout}"
-
-    return (remainderIsZero, coeffs)
+    if coeffLines.length != numGens then
+      throwError m!"lean_m2: expected {numGens} coefficients from M2, got {coeffLines.length}. Raw output:\n{stdout}"
+    return (true, coeffLines)
 
 /-- Call Macaulay2 with the given script and return stdout. -/
 def callM2 (script : String) : MetaM String := do
@@ -338,16 +265,8 @@ elab "lean_m2" : tactic =>
       throwError "lean_m2: no generators found in ideal"
 
     -- Step 2: Collect atoms (fvars) and build name map
-    let allExprs := elem :: generators
-    let (atomFvars, atomIndexMap) ← collectAtoms allExprs
-
-    let mut atomNamePairs : List (String × String) := []
-    for fid in atomFvars do
-      let userName := (← fid.getUserName).toString
-      let idx := atomIndexMap.get! fid
-      atomNamePairs := atomNamePairs ++ [(userName, s!"x{idx}")]
-
-    let atomM2Names := atomFvars.zipIdx.toList.map (fun (_, i) => s!"x{i}")
+    let atomNamePairs ← collectAtomNames (elem :: generators)
+    let atomM2Names := atomNamePairs.map (·.2)
 
     -- Step 3: Detect ring type
     let ringInfo ← getRingInfo ringType
@@ -356,11 +275,8 @@ elab "lean_m2" : tactic =>
     let elemStr ← toExternal' `M2_out elem
     let elemM2 := replaceVarsInM2String elemStr atomNamePairs
 
-    let mut genM2Strs : List String := []
-    for gen in generators do
-      let genStr ← toExternal' `M2_out gen
-      let genM2 := replaceVarsInM2String genStr atomNamePairs
-      genM2Strs := genM2Strs ++ [genM2]
+    let genM2Strs ← generators.mapM fun gen => do
+      return replaceVarsInM2String (← toExternal' `M2_out gen) atomNamePairs
 
     -- Step 5: Build M2 script
     let script := buildM2Script ringInfo atomM2Names elemM2 genM2Strs
@@ -371,17 +287,11 @@ elab "lean_m2" : tactic =>
     -- Step 7: Parse M2 output
     let (_, coeffStrs) ← parseM2Output stdout generators.length
     -- Step 8: Parse coefficient strings back to Lean expressions via M2_in
-    -- Include known M2 constants (like "ii") in implicit multiplication handling
-    let extraM2Tokens := if ringInfo.isComplex then ["ii"] else []
-    let allM2Names := atomM2Names ++ extraM2Tokens
-
-    let mut coeffTerms : Array (TSyntax `term) := #[]
-    for coeffStr in coeffStrs do
-      let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs allM2Names
-      let m2InName := `M2_in
-      let coeffExpr ← fromExternal' m2InName coeffWithNames
-      let coeffTerm ← PrettyPrinter.delab coeffExpr
-      coeffTerms := coeffTerms.push coeffTerm
+    let coeffTerms ← coeffStrs.toArray.mapM fun coeffStr => do
+      let coeffWithNames := replaceVarsBackFromM2 coeffStr atomNamePairs
+      let coeffExpr ← fromExternal' `M2_in coeffWithNames
+      synthesizeSyntheticMVarsNoPostponing
+      PrettyPrinter.delab (← instantiateMVars coeffExpr)
 
     -- Step 9: Construct proof
     -- Simplify the goal using ideal membership lemmas
@@ -395,12 +305,8 @@ elab "lean_m2" : tactic =>
     -- The last coefficient (for mem_span_singleton': ∃ a, a*y = x) is used directly.
     for i in List.range coeffTerms.size do
       let coeffTerm := coeffTerms[i]!
-      if i < coeffTerms.size - 1 then
-        -- For mem_span_insert': negate the coefficient
-        let negTerm ← `(- $coeffTerm)
-        Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [negTerm]
-      else
-        Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [coeffTerm]
+      let term ← if i < coeffTerms.size - 1 then `(- $coeffTerm) else pure coeffTerm
+      Mathlib.Tactic.runUse false (← Mathlib.Tactic.mkUseDischarger none) [term]
 
     evalTactic (← `(tactic| ring))
     let gs ← getGoals

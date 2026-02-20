@@ -1,3 +1,4 @@
+/- Defines the `ExprPattern` structure, plus variants and utility functions. This is used to represent a partially-elaborated expression that can be transferred between metavariable contexts -/
 import Lean
 import Qq.Macro
 import DSLean.Utils.Syntax
@@ -193,7 +194,7 @@ def Lean.Syntax.toPattern (stx : Syntax) (expectedType? : Option Expr) (varNames
     | .postponed stx =>
       try
         checkVars q(()) varNames #[] binderVarNames checkInjective? checkSurjective? -- just check that there are no variables to fill in
-      catch e =>
+      catch _ =>
         throwError m!"Couldn't infer contents of pattern (it was postponed), so variables cannot not be used."
       return ExprPattern.postponed stx
 

@@ -1,7 +1,6 @@
+/- Defines core commands for creating external DSLs and interfacing with DSLean -/
 import DSLean.ExternalToLean.Main
-import DSLean.LeanToExternal.Basic
-import Mathlib.Order.Interval.Set.Defs
-import Mathlib.Data.Nat.Basic
+import DSLean.LeanToExternal.Main
 
 open Lean Meta Elab Meta Term Expr Command
 open Qq

@@ -3,7 +3,26 @@
 `DSLean` aims to provide a powerful and intuitive interface for communication between the Lean theorem prover and arbitrary DSLs, solvers, and languages. Given a specification of an external language and each component's Lean equivalent, `DSLean` automatically translates back and forth between syntatically correct expressions and type-correct Lean objects. No messing around with the trivialities of parsing and elaboration is required. 
 
 
-### Installation
+### Quick Start (Docker)
+
+To try out DSLean, we provide a Docker image which bundles Lean, Gappa, SageMath, and Macaulay2 so you don't need to install anything yourself.
+
+**Option A — VS Code Dev Container (recommended):**
+1. Install [Docker](https://www.docker.com/) and the [Dev Containers](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers) VS Code extension.
+2. Open this repository in VS Code.
+3. When prompted, click **"Reopen in Container"** (or run the command `Dev Containers: Reopen in Container` from the command palette).
+4. Wait for the container to build — this will install all dependencies and run `lake build`. The first build takes a while since it pulls Mathlib, but subsequent opens are fast.
+5. Once the build finishes, open any `.lean` file (e.g. `DSLean/TacticExamples.lean`) and the Lean 4 extension will work out of the box.
+
+**Option B — Plain Docker:**
+```bash
+docker build -t dslean .
+docker run -it dslean
+```
+
+> **Note:** The image is large (~several GB) due to SageMath and Mathlib. The first build will take some time.
+
+### Manual Installation
 
 This project uses Lean 4.27.0. Make sure Lean is installed, then run:
 
@@ -40,7 +59,7 @@ external myDSL where
 
 #eval fromExternal' `myDSL "yep" -- True (but as an Expr)
 
-#eval toExternal' `myDSL (q(«False»)) -- "nope"
+#eval toExternal' `myDSL (q(False)) -- "nope"
 ```
 
 The translation functions `fromExternal` and `toExternal` elaborate everything automatically, while `fromExternal'` and `toExternal'` work directly with `Expr`s at the meta level and will probably be helpful when making tactics and such. 
@@ -100,3 +119,9 @@ external myOneWayDSL where
 ...can be expressed, even though the translation from `a` back to the original syntax can't be accomplished since the values of `b` and `c` would be ambiguous. This is also particularly helpful when specifying equivalences such as parentheses to indicate precedence: it's perfectly valid to add more parentheses around an expression forever since its value never changes (DSLean will generally try to avoid doing this if there are other options for ways to parse the expression, but infinite loops may occur if those aren't available). 
 
 One-way equivalences the other way can also be made with `<==`. 
+
+⚠⚠⚠ IMPORTANT: due to what appears to be a bug in Lean, keywords defined as part of an external syntax may also randomly be registered as a keyword within Lean, preventing one from accessing declarations of the same name (for example, the equivalence `"yep" <==> True` may cause `yep` to be a keyword, and something like `def yep := 1 #check yep` will fail). This problem occurs very inconsistently, and happens despite correct scoping of the syntax declarations in `DSLean.ExternalToLean.Parsing`. To get around this, wrap identifiers in "«...»" (e.g. `«yep»`) to be able to access them. 
+
+### Navigating the Code
+
+The `DSLean` folder contains examples in `UsageExamples.lean` and `TacticExamples.lean`, as well as the implementations of three example tactics in `Gappa.lean`, `Desolve.lean`, and `LeanM2.lean`. The entry point to DSLean's functionality is defined in `Command.lean`. The core algorithms for translating from Lean expressions to external syntax, and from external syntax back to Lean, are found in `DSLean/LeanToExternal/Main.lean` and `DSLean/ExternalToLean/Main.lean` respectively, with additional functionality around metavariable unification in `DSLean/Utils/Pattern.lean`. 

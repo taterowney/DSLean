@@ -1,3 +1,4 @@
+/- Various attributes and initializers used to keep track of external equivalences -/
 import Lean
 import DSLean.Utils.Pattern
 open Lean Meta Elab Command

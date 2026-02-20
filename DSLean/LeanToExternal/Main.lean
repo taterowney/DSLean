@@ -1,19 +1,5 @@
-import Lean
-import Std.Internal.Parsec
-import Std.Internal.Parsec.Basic
-import Std.Internal.Parsec.String
-import Qq.Macro
-import Lean.Elab.Command
-import DSLean.Utils.Pattern
-import Lean.Parser.Command
-import Lean.Parser.Syntax
-import Lean.Parser.Term
-import Lean.Elab.Syntax
-
-
-import DSLean.Utils.Syntax
-import DSLean.Utils.Datatypes
-import DSLean.ExternalToLean.Main
+/- Contains main translation algorithm for Lean -> External (the `translateExpr` function below) -/
+import DSLean.ExternalToLean.Elaboration
 
 open Lean Meta Tactic Elab Meta Term Tactic Expr Command
 open Qq
@@ -59,7 +45,7 @@ partial def Lean.Expr.printdbg (e : Expr) : String :=
   | Expr.lam n ty body _ => s!"lam({n}, {ty.printdbg}, {body.printdbg})"
   | Expr.forallE n ty body _ => s!"forallE({n}, {ty.printdbg}, {body.printdbg})"
   | Expr.letE n ty val body _ => s!"letE({n}, {ty.printdbg}, {val.printdbg}, {body.printdbg})"
-  | Expr.lit l => s!"lit()"
+  | Expr.lit _ => s!"lit()"
   | Expr.proj n idx struct => s!"proj({n}, {idx}, {struct})"
   | Expr.mdata md e => s!"mdata({md}, {e.printdbg})"
 
@@ -343,18 +329,11 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
         else
           continue
 
-      else
-      -- logInfo m!"Trying pattern {pat_expr} for expression {e}"
-
-      try
+      else try
         let out ← withoutModifyingMCtx do
 
           let e_old := e
           if (← isDefEqGuarded pat_expr e) then
-            -- if pat_expr.isLambda then
-            --   logInfo m!"Matched lambda pattern! original: {e_old}, new: {e} -> {← Core.betaReduce (← instantiateMVars e)}"
-              -- if e_old == (← Core.betaReduce (← instantiateMVars e)) then
-              --   throwError m!"Expression is already in the right form, no beta reduction needed"
 
             let processBlank := fun e' br depth' => do
               -- logInfo m!"Processing blanks. Started with {e_old}, changed to {e}, one of the blanks was {e'}"

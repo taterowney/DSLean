@@ -22,3 +22,6 @@ structure ExternalEquivalenceOptions where
   priority : Int := 0
 deriving Inhabited, Repr
 declare_command_config_elab elabExternalEquivalenceOptions ExternalEquivalenceOptions
+
+/-- Namespace in which to store parser declarations for the DSL `cat` -/
+def externalNamespace (cat : Name) := `_DSLean_internal ++ cat

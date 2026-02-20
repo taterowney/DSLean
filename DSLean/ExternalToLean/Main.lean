@@ -1,29 +1,14 @@
-import Lean
-import Std.Internal.Parsec
-import Std.Internal.Parsec.Basic
-import Std.Internal.Parsec.String
-import Qq.Macro
-import Lean.Elab.Command
-import DSLean.Utils.Pattern
-import Lean.Parser.Command
-import Lean.Parser.Syntax
-import Lean.Parser.Term
-import Lean.Meta
-
-import DSLean.ExternalToLean.Parsing
+/- Main algorithm for external syntax -> Lean (`parseExternal` and `elabExternal`) -/
 import DSLean.ExternalToLean.Elaboration
+import DSLean.ExternalToLean.Parsing
 
-open Lean Meta Tactic Elab Meta Term Tactic Expr Command
-open Qq
-open Std.Internal.Parsec Std.Internal.Parsec.String
-open Std.Internal Parser Command Syntax Quote
+open Lean Meta Tactic Elab Term Expr Command Qq
 
 
 
 /-- Set up an external parser category for a DSL with this name, and add some default elaborators that are a part of every DSL. -/
 def initializeExternalCategory (cat : TSyntax `ident) (checkInjective? : Bool) (checkSujective? : Bool) (castFn : Option Expr) : CommandElabM Unit := do
   elabCommand (← `(declare_syntax_cat $cat))
-  -- elabCommand (← `(declare_syntax_cat $cat (behavior := symbol))) -- TODO: this makes reserved keywords process as idents for some reason
 
   declareDefaultElaborators cat checkInjective? checkSujective? castFn
 
@@ -38,10 +23,11 @@ def declareExternal (cat : Name) (patterns : Array (TSyntax `stx)) (target : TSy
   addExternalEquivalence k cat k targetPat patterns checkInjective? checkSujective? options.priority -- Add information about this equivalence to the environment
 
   declareExternalElaborator k cat patterns ⟨k⟩ -- Declare an elaborator for this external syntax
+  pure ()
 
 
 /-- Parse an input string according to the external syntax category `cat`, returning the corresponding `Syntax` object. Additionally makes sure there's no extra stuff hanging out at the end. TODO: ascii character byte vs character length (`runParserCategory`) -/
-def parseExternal (cat : Name) (input : String) : TermElabM Syntax := do
+def parseExternal (cat : Name) (input : String) : CommandElabM Syntax := do
   let p := Parser.categoryParser cat 0 |>.fn -- Process the syntax with our custom parser
   let e ← getEnv
   let ctx := Parser.mkInputContext input "<input>"
@@ -52,6 +38,10 @@ def parseExternal (cat : Name) (input : String) : TermElabM Syntax := do
     throwError m!"Syntax error in input: unexpected trailing characters {input.drop out.pos.byteIdx}"
   return out.stxStack.back
 
+/-- Parse an input string according to the external syntax category `cat`, within the namespace for that category. -/
+def parseExternalWithNamespace (cat : Name) (input : String) : CommandElabM Syntax := do
+  withNamespace (externalNamespace cat) do
+    return ← parseExternal cat input
 
 /-- Try to synthesize and assign every typeclass metavariable occurring in `e`. Have to do this manually, since unsynthesized typeclasses aren't recorded in `pendingMVars` for some reason (likely because of the various stages of abstraction and other tomfoolery) -/
 partial def synthTCMVarsIn (e : Expr) : MetaM Expr := do
@@ -144,7 +134,7 @@ where blankCont (depth : Nat) (blankContents : List (Name × Syntax)) (name : Na
 
 /-- Process (parse and elaborate) an input string according to the external syntax category `cat`. -/
 def fromExternal' (cat : Name) (input : String) (expectedType? : Option Expr := none) : TermElabM Expr := do
-  let stx ← parseExternal cat input
+  let stx ← liftCommandElabM <| parseExternalWithNamespace cat input
   elabExternal cat stx expectedType?
 
 -- TODO: how do I make these terms instead?

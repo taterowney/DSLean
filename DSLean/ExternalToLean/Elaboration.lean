@@ -1,24 +1,8 @@
-import Lean
-import Std.Internal.Parsec
-import Std.Internal.Parsec.Basic
-import Std.Internal.Parsec.String
-import Lean.Elab.AuxDef
-import Qq.Macro
-import Lean.Elab.Command
-import DSLean.Utils.Pattern
-import DSLean.ExternalToLean.Basic
-import Lean.Parser.Command
-import Lean.Parser.Syntax
-import Lean.Parser.Term
-import Lean.Elab.Syntax
-
+/- Boilerplate for setting up elaborators to recognize `Syntax` structure -/
+import DSLean.Utils.Datatypes
 import Mathlib.Data.Real.Basic -- for definition of Reals
 
-import DSLean.Utils.Syntax
-import DSLean.Utils.Datatypes
-
-open Lean Meta Tactic Elab Meta Term Tactic Expr Command
-open Qq
+open Lean Meta Tactic Elab Term Expr Command Qq
 
 open Lean.Syntax
 open Lean.Parser.Term hiding macroArg
@@ -129,7 +113,7 @@ def declareExternalElaborator (kind : SyntaxNodeKind) (cat : Name) (patterns : A
 /-- Add default elaborators common to every DSL. TODO: Scientific notation. Also since `num parsing is weird, right now it automatically treats them as Nats. Might be nice to parameterize this. -/
 def declareDefaultElaborators (cat : Ident) (checkInjective? : Bool) (checkSurjective? : Bool) (castFn : Option Expr) : CommandElabM Unit := do
   -- using a syntax quotation like `(syntax:1024 ident : $cat) errors for some reason; construct manually
-  -- `(syntax:1024 (name := kindNamePlaceholder) ident : catPlaceholder)
+  -- `(scoped syntax:1024 (name := kindNamePlaceholder) ident : catPlaceholder)
   let kindName := externalIdentKind cat
   let identSyntaxDecl : TSyntax `command := .mk (Lean.Syntax.node default `Lean.Parser.Command.syntax #[(Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `Lean.Parser.Term.attrKind #[(Lean.Syntax.node default `null #[])]), (Lean.Syntax.atom default "syntax"), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.precedence #[(Lean.Syntax.atom default ":"), (Lean.Syntax.node default `num #[(Lean.Syntax.atom default "1024")])])]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Command.namedName #[(Lean.Syntax.atom default "("), (Lean.Syntax.atom default "name"), (Lean.Syntax.atom default ":="), mkIdent kindName, (Lean.Syntax.atom default ")")])]), (Lean.Syntax.node default `null #[]), (Lean.Syntax.node default `null #[(Lean.Syntax.node default `Lean.Parser.Syntax.cat #[(mkIdent `ident), (Lean.Syntax.node default `null #[])])]), (Lean.Syntax.atom default ":"), cat])
   elabCommand identSyntaxDecl -- identifiers are part of any DSL. How they are declared/managed is defined by the language in question.

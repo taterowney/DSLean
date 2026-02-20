@@ -1,3 +1,4 @@
+/- The `desolve` tactic, used for solving ordinary differential equations (modulo an oracle).  -/
 import DSLean.Command
 import Mathlib.Algebra.Order.Round
 import Mathlib.Data.Real.Basic
@@ -7,6 +8,7 @@ import Mathlib.Analysis.SpecialFunctions.Log.Basic
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
 import Mathlib.Analysis.Calculus.Deriv.Basic
 
+set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
 
 open Qq Lean Elab Term Command Tactic Meta
 
@@ -72,11 +74,13 @@ elab "desolve" : tactic =>
     let soln := target.appArg!
 
     let formatted := "x = var('x'); y = function('y')(x); print(desolve(" ++ (← toExternal' `desolve_out ode) ++ ",y).simplify_full())"
-    let res ← IO.Process.run {
+
+    let res ← try IO.Process.run {
       cmd := (← IO.getEnv "DSLEAN_SAGE_PATH").getD "sage",
       args := #["-c", formatted],
       stdin := .piped, stdout := .piped, stderr := .piped
     }
+    catch e => throwError m!"SageMath failed with the following error:\n\n{e.toMessageData}\n\nMake sure you have SageMath installed and DSLEAN_SAGE_PATH set to the correct executable."
 
     let out ← fromExternal' `desolve_in ("{" ++ res.replace "^" "^ " ++ "}") -- For some reason Lean's parser really doesn't like "^"s followed by "("s without a space
 

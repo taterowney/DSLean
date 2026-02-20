@@ -1,7 +1,5 @@
+/- Boilerplate for setting up parsing of external syntax -/
 import Lean
-import Std.Internal.Parsec
-import Std.Internal.Parsec.Basic
-import Std.Internal.Parsec.String
 import Qq.Macro
 import Lean.Elab.Command
 import DSLean.Utils.Pattern
@@ -12,14 +10,13 @@ import Lean.Parser.Term
 import DSLean.ExternalToLean.Basic
 import DSLean.Utils.Syntax
 
-
-open Lean Meta Tactic Elab Meta Term Tactic Expr Command
+open Lean Meta Tactic Elab Term Expr Command
 open Qq
 open Std.Internal.Parsec Std.Internal.Parsec.String
 open Std.Internal Parser Command Syntax Quote
-open Lean.Elab.Command
 
-/-- By default, we try to make everything as left-associative as possible, so defining things like function application doesn't interfere with other syntax that has two `Syntax.cat`s in a row. -/
+
+/-- Automatically add/infer parser precedences for declared syntax. By default, we try to make everything as left-associative as possible, so defining things like function application doesn't interfere with other syntax that has two `Syntax.cat`s in a row. -/
 def addPrecedences (syntaxPatterns : Array Syntax) (options : ExternalEquivalenceOptions) : (Array Syntax) :=
   let startsWithAtom := match syntaxPatterns[0]? with
     | some (.node _ `Lean.Parser.Syntax.atom _) => true
@@ -91,62 +88,61 @@ private def addMacroScopeIfLocal [MonadQuotation m] [Monad m] (name : Name) (att
 
 /-- Creates a custom syntax declaration based on the patterns given; identifiers are assumed to refer to bound variable names not syntax categories. Lots borrowed from `elabSyntax` function in `Lean.Elab.Syntax` -/
 def declareExternalSyntax (cat : Name) (patterns : Array Syntax) (options : ExternalEquivalenceOptions) : CommandElabM (SyntaxNodeKind × List Name × List Name) := do
-  let mut syntaxParts : Array Syntax := #[]
-  let mut variableNames : List Name := []
-  let mut binderNames : List Name := []
-  for p in patterns do
-    let withoutParens := match p with
-  | `(stx| ($s)) => s.raw
-  | _ => p
+  Lean.Elab.Command.withNamespace (externalNamespace cat) do
 
-    match withoutParens with
-    | .node _ k args =>
-      match k with
-      | `Lean.Parser.Syntax.atom =>
-        syntaxParts := syntaxParts.push withoutParens
-        -- syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.nonReserved (#[(Lean.Syntax.atom default "&")] ++ args)) -- Ensure the keyword isn't reserved in Lean itself to not interrupt other stuff
-      | `Lean.Parser.Syntax.cat =>
-        match args.toList with
-        | (.ident _ raw _ _ ) :: _ =>
-          syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.cat #[mkIdent cat])
-          variableNames := (raw.toName) :: variableNames
-        | _ => throwError m!"Unsupported cat args: {args}"
-      | `stx.pseudo.antiquot =>
-        match args.toList with
-        | _ :: _ :: (.ident _ raw _ _ ) :: _ =>
-          syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.cat #[mkIdent `ident])
-          binderNames := (raw.toName) :: binderNames
-        | _ => throwError m!"Unsupported antiquot args: {args}"
-      | _ => throwError m!"Unsupported syntax node kind: {k}"
-    | x => throwError m!"Unsupported syntax part: {x}"
+    let mut syntaxParts : Array Syntax := #[]
+    let mut variableNames : List Name := []
+    let mut binderNames : List Name := []
+    for p in patterns do
+      let withoutParens := match p with
+    | `(stx| ($s)) => s.raw
+    | _ => p
 
+      match withoutParens with
+      | .node _ k args =>
+        match k with
+        | `Lean.Parser.Syntax.atom =>
+          syntaxParts := syntaxParts.push withoutParens
+        | `Lean.Parser.Syntax.cat =>
+          match args.toList with
+          | (.ident _ raw _ _ ) :: _ =>
+            syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.cat #[mkIdent cat])
+            variableNames := (raw.toName) :: variableNames
+          | _ => throwError m!"Unsupported cat args: {args}"
+        | `stx.pseudo.antiquot =>
+          match args.toList with
+          | _ :: _ :: (.ident _ raw _ _ ) :: _ =>
+            syntaxParts := syntaxParts.push (mkNode `Lean.Parser.Syntax.cat #[mkIdent `ident])
+            binderNames := (raw.toName) :: binderNames
+          | _ => throwError m!"Unsupported antiquot args: {args}"
+        | _ => throwError m!"Unsupported syntax node kind: {k}"
+      | x => throwError m!"Unsupported syntax part: {x}"
 
-  syntaxParts := addPrecedences syntaxParts options
-  let syntaxParser := mkNullNode syntaxParts
-  let (val, lhsPrec?) ← runTermElabM fun _ => Term.toParserDescr syntaxParser cat
+    syntaxParts := addPrecedences syntaxParts options
+    let syntaxParser := mkNullNode syntaxParts
+    let (val, lhsPrec?) ← runTermElabM fun _ => Term.toParserDescr syntaxParser cat
 
-  let prio := 0
-  let prec := 60 + options.precedence
-
-
-  let name ← addMacroScopeIfLocal (← liftMacroM <| mkNameFromParserSyntax cat syntaxParser) default
-  let idRef := mkIdentFrom (mkNullNode patterns) (cat.appendAfter "ParserDescr") (canonical := true)
-  let stxNodeKind := (← getCurrNamespace) ++ name
-  let catParserId := mkIdentFrom idRef (cat.appendAfter "_parser") (canonical := true)
-  let declName := mkIdentFrom idRef name (canonical := true)
-
-  let attrInstance ← `(Term.attrInstance| $catParserId:ident $(quote prio):num)
-  let attrInstances : TSepArray `Lean.Parser.Term.attrInstance "," := { elemsAndSeps := #[] }
-  let attrInstances := attrInstances.push attrInstance
+    let prio := 0
+    let prec := 60 + options.precedence
 
 
-  let d ← if let some lhsPrec := lhsPrec? then
-    `(@[$attrInstances,*] meta def $declName:ident : Lean.TrailingParserDescr :=
-        ParserDescr.trailingNode $(quote stxNodeKind) $(quote prec.toNat) $(quote lhsPrec) $val)
-  else
-    let prec := 1024
-    `(@[$attrInstances,*] meta def $declName:ident : Lean.ParserDescr :=
-        ParserDescr.node $(quote stxNodeKind) $(quote prec) $val)
+    let name ← addMacroScopeIfLocal (← liftMacroM <| mkNameFromParserSyntax cat syntaxParser) default
+    let idRef := mkIdentFrom (mkNullNode patterns) (cat.appendAfter "ParserDescr") (canonical := true)
+    let stxNodeKind := (← getCurrNamespace) ++ name
+    let catParserId := mkIdentFrom idRef (cat.appendAfter "_parser") (canonical := true)
+    let declName := mkIdentFrom idRef name (canonical := true)
 
-  elabCommand d
-  return (stxNodeKind, variableNames, binderNames)
+    let attrInstance ← `(Term.attrInstance| scoped $catParserId:ident $(quote prio):num)
+    let attrInstances : TSepArray `Lean.Parser.Term.attrInstance "," := { elemsAndSeps := #[] }
+    let attrInstances := attrInstances.push attrInstance
+
+    let d ← if let some lhsPrec := lhsPrec? then
+      `(command|@[$attrInstances,*] public meta def $declName:ident : Lean.TrailingParserDescr :=
+          ParserDescr.trailingNode $(quote stxNodeKind) $(quote prec.toNat) $(quote lhsPrec) $val)
+    else
+      let prec := 1024
+      `(command|@[$attrInstances,*] public meta def $declName:ident : Lean.ParserDescr :=
+          ParserDescr.node $(quote stxNodeKind) $(quote prec) $val)
+
+    elabCommand d
+    return (stxNodeKind, variableNames, binderNames)

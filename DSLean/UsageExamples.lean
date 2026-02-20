@@ -1,19 +1,4 @@
 import DSLean.Command
-open Lean Meta Qq
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 external translate_Python where
@@ -32,20 +17,15 @@ external translate_Python where
   ($name) "=" val ";" rest <==> let name := val; rest
 
 
+#check fromExternal translate_Python "True" -- True : Prop
+#check toExternal translate_Python «False» -- "False" : String
 
 
-
-
-
-
-#check fromExternal translate_Python "not True"
-#check toExternal translate_Python «False»
-
-
-
-
+#check fromExternal translate_Python "not True" -- ¬ True : Prop
 #check toExternal translate_Python  ¬ «False» -- "not False" : String
-#check fromExternal translate_Python "True and False"
+
+
+#check fromExternal translate_Python "True and False" -- True ∧ False : Prop
 
 
 
@@ -53,9 +33,7 @@ external translate_Python where
 #eval fromExternal translate_Python "float(1) + float(1)" -- (2 : Float)
 
 
-
-
-#check fromExternal translate_Python "x = float(1); x"
+#check fromExternal translate_Python "x = float(1); x" -- let x := 1; x : Float
 
 
 
@@ -65,4 +43,4 @@ external translate_Python_one_way where
   "False" ==> «False»
   "(" a "," b ")[0]" ==> a
 
-#check fromExternal translate_Python_one_way "(True, False)[0]"
+#check fromExternal translate_Python_one_way "(True, False)[0]" -- True : Prop

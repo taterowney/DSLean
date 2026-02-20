@@ -1,8 +1,10 @@
+/- The `gappa` tactic, used for finding provable bounds on real-valued expressions. -/
 import DSLean.Command
 import Mathlib.Algebra.Order.Round
 import Mathlib.Data.Real.Basic
 import Mathlib.Data.Real.Sqrt
 import Mathlib.Tactic
+
 set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
 
 open Lean Meta Elab Term Command Tactic
@@ -44,44 +46,41 @@ elab "simplify_hyps" : tactic => withMainContext do
       evalTactic (← `(tactic| try rcases $asTarget))
   )
 
+macro "gappa_normalize" : tactic => `(tactic| unfold_local <;> intros <;> simplify_hyps <;> norm_num at * <;> try constructor)
+macro "gappa_sqrt_ineq" : tactic => `(tactic| try apply (sq_le_sq₀ (by norm_num) (by norm_num)).mp <;> simp only [Nat.ofNat_nonneg, Real.sq_sqrt] <;> norm_num at *; try apply (sq_lt_sq₀ (by norm_num) (by norm_num)).mp <;> simp only [Nat.ofNat_nonneg, Real.sq_sqrt] <;> norm_num at *)
 
-macro "Gappa_normalize" : tactic => `(tactic| unfold_local <;> intros <;> simplify_hyps <;> norm_num at * <;> try constructor)
-
-macro "Gappa_sqrt_ineq" : tactic => `(tactic| try apply (sq_le_sq₀ (by norm_num) (by norm_num)).mp <;> simp only [Nat.ofNat_nonneg, Real.sq_sqrt] <;> norm_num at *; try apply (sq_lt_sq₀ (by norm_num) (by norm_num)).mp <;> simp only [Nat.ofNat_nonneg, Real.sq_sqrt] <;> norm_num at *)
-
-
--- macro "constantBound" : tactic => `(tactic| Gappa_normalize <;> simp_all)
+-- macro "gappa_constant_bound" : tactic => `(tactic| gappa_normalize <;> simp_all)
 -- macro "sqrtG" : tactic => `(tactic| unfold_local <;> Gappa_sqrt_ineq)
 -- macro "mul_pp" : tactic => `(tactic| unfold_local <;> (try linarith) <;> Gappa_sqrt_ineq)
--- macro "Gappa_simplify" : tactic => `(tactic| Gappa_normalize <;> (try linarith) <;> Gappa_sqrt_ineq)
+-- macro "gappa_simplify" : tactic => `(tactic| gappa_normalize <;> (try linarith) <;> Gappa_sqrt_ineq)
 
-elab "constantBound" : tactic => withMainContext do
-  evalTactic (← `(tactic| Gappa_normalize <;> (try simp_all)))
+elab "gappa_constant_bound" : tactic => withMainContext do
+  evalTactic (← `(tactic| gappa_normalize <;> (try simp_all)))
   let goals ← getGoals
   -- if !goals.isEmpty then
-  --   logInfo m!"constantBound failed to solve {goals.length} goals:\n\n {goals}"
+  --   logInfo m!"gappa_constant_bound failed to solve {goals.length} goals:\n\n {goals}"
 
 
 -- TODO: something like
 --       rw [← mul_one (1/2)]
 --       refine mul_le_mul ?_ ?_ ?_ ?_ <;> norm_num <;> try linarith
 
-elab "Gappa_mul_generic" : tactic => withMainContext do
-  evalTactic (← `(tactic| (try linarith) <;> Gappa_sqrt_ineq <;>
+elab "gappa_mul_generic" : tactic => withMainContext do
+  evalTactic (← `(tactic| (try linarith) <;> gappa_sqrt_ineq <;>
     (try (refine mul_nonneg ?_ ?_ <;> linarith)) <;>
     try nlinarith)) -- nlinarith easily one-shots most of these goals, but its very expensive so we put it behind some heuristics
   let goals ← getGoals
   -- if !goals.isEmpty then
-  --   logInfo m!"Gappa_mul_generic failed to solve {goals.length} goals:\n\n {goals}"
+  --   logInfo m!"gappa_mul_generic failed to solve {goals.length} goals:\n\n {goals}"
 
-elab "Gappa_reduce_arrows" : tactic => withMainContext do
+elab "gappa_reduce_arrows" : tactic => withMainContext do
   evalTactic (← `(tactic| simplify_hyps))
   discard <| (← getLCtx).getFVarIds.mapM (fun id => do
     match (← id.getType).arrow? with
     | none => pure ()
     | some (src, tgt) =>
       let inst ← mkFreshExprMVar src
-      if (← evalTacticAt (← `(tactic| try Gappa_mul_generic)) inst.mvarId!).isEmpty then
+      if (← evalTacticAt (← `(tactic| try gappa_mul_generic)) inst.mvarId!).isEmpty then
         let (_, new) ← (← getMainGoal).assertHypotheses #[{userName := (← getUnusedUserName `h), type := tgt, value := mkApp (.fvar id) (← instantiateMVars inst)}]
         replaceMainGoal [new]
 
@@ -92,23 +91,23 @@ elab "Gappa_reduce_arrows" : tactic => withMainContext do
 
     )
 
-elab "Gappa_sqrtG" : tactic => withMainContext do
-  evalTactic (← `(tactic| Gappa_normalize <;> Gappa_sqrt_ineq))
+elab "gappa_sqrtG" : tactic => withMainContext do
+  evalTactic (← `(tactic| gappa_normalize <;> gappa_sqrt_ineq))
   let goals ← getGoals
   -- if !goals.isEmpty then
-  --   logInfo m!"Gappa_sqrtG failed to solve {goals.length} goals:\n\n {goals}"
+  --   logInfo m!"gappa_sqrtG failed to solve {goals.length} goals:\n\n {goals}"
 
-elab "Gappa_simplify" : tactic => withMainContext do
-  evalTactic (← `(tactic| Gappa_normalize <;> (try linarith) <;> Gappa_sqrt_ineq <;> Gappa_mul_generic <;> Gappa_reduce_arrows <;> Gappa_mul_generic))
+elab "gappa_simplify" : tactic => withMainContext do
+  evalTactic (← `(tactic| gappa_normalize <;> (try linarith) <;> gappa_sqrt_ineq <;> gappa_mul_generic <;> gappa_reduce_arrows <;> gappa_mul_generic))
   let goals ← getGoals
   -- if !goals.isEmpty then
-  --   logInfo m!"Gappa_simplify failed to solve {goals.length} goals:\n\n {goals}"
+  --   logInfo m!"gappa_simplify failed to solve {goals.length} goals:\n\n {goals}"
 
-elab "Gappa_mul_pp" : tactic => withMainContext do
-  evalTactic (← `(tactic| Gappa_normalize <;> (try simp [abs_le] at *) <;> Gappa_sqrt_ineq <;> Gappa_mul_generic <;> Gappa_reduce_arrows <;> Gappa_mul_generic))
+elab "gappa_mul_pp" : tactic => withMainContext do
+  evalTactic (← `(tactic| gappa_normalize <;> (try simp [abs_le] at *) <;> gappa_sqrt_ineq <;> gappa_mul_generic <;> gappa_reduce_arrows <;> gappa_mul_generic))
   let goals ← getGoals
   -- if !goals.isEmpty then
-  --   logInfo m!"Gappa_mul_pp failed to solve {goals.length} goals:\n\n {goals}"
+  --   logInfo m!"gappa_mul_pp failed to solve {goals.length} goals:\n\n {goals}"
 
 external Gappa_output (numberCast := Int.ofNat) where
   x "->" y   ==> x → y; +rightAssociative
@@ -140,22 +139,22 @@ external Gappa_output (numberCast := Int.ofNat) where
   "Reals.Rdefinitions.Ropp" x               ==> - (x:Real)
   "Reals.R_sqrt.sqrt" x                     ==> Real.sqrt x
 
-  "Gappa.Gappa_pred_bnd.constant1" a b c          ==> by constantBound <;> sorry
-  "Gappa.Gappa_tree.simplify" a                   ==> by Gappa_simplify <;> sorry
-  "Gappa.Gappa_pred_bnd.sqrtG" a b c d e          ==> by Gappa_sqrtG <;> sorry
-  "Gappa.Gappa_pred_bnd.neg" a b c d e            ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.add" a b c d e f g h      ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.sub" a b c d e f g h      ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.mul_pp" a b c d e f g h   ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.div_pp" a b c d e f g h   ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_abs.abs_of_bnd_p" a b c d e   ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.square" a b c d e         ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.subset" a b c d e         ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_rewriting.add_xilu" a b c d          ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.intersect_hb" a b c d e f g ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.intersect_bh" a b c d e f g ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_pred_bnd.union" a b c d              ==> by Gappa_mul_pp <;> sorry
-  "Gappa.Gappa_rewriting.val_xabs" a b c d ==> by Gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.constant1" a b c          ==> by gappa_constant_bound <;> sorry -- Equivalents of `gappa`'s automation tactics, mostly implemented above
+  "Gappa.Gappa_tree.simplify" a                   ==> by gappa_simplify <;> sorry -- If a sorry is reached here, it is NOT included in the final proof: instead, the script below replaces it with a goal to be solved by the user.
+  "Gappa.Gappa_pred_bnd.sqrtG" a b c d e          ==> by gappa_sqrtG <;> sorry
+  "Gappa.Gappa_pred_bnd.neg" a b c d e            ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.add" a b c d e f g h      ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.sub" a b c d e f g h      ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.mul_pp" a b c d e f g h   ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.div_pp" a b c d e f g h   ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_abs.abs_of_bnd_p" a b c d e   ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.square" a b c d e         ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.subset" a b c d e         ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_rewriting.add_xilu" a b c d          ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.intersect_hb" a b c d e f g ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.intersect_bh" a b c d e f g ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_pred_bnd.union" a b c d              ==> by gappa_mul_pp <;> sorry
+  "Gappa.Gappa_rewriting.val_xabs" a b c d ==> by gappa_mul_pp <;> sorry
 
   "proj1" x  ==> And.left x
   "proj2" x  ==> And.right x
@@ -172,7 +171,7 @@ def Lean.TSyntax.str (s : TSyntax α) : String := (toString s).drop 1 |>.toStrin
 def clean_gappa_macro (s : String) : TermElabM String := do
   try
     let pref := if s.trimAscii.startsWith "(" then "(" else ""
-    let parsed ← parseExternal `clean_gappa (s.trimAscii.dropWhile '(').toString
+    let parsed ← liftCommandElabM <| parseExternal `clean_gappa (s.trimAscii.dropWhile '(').toString
     match parsed with
     | `(clean_gappa| let $bname:ident $[( $names:ident : $typs:ident)]* : $result:ident := ) =>
       return s!"{pref}let {bname.str} : {String.intercalate " -> " ((typs.map Lean.TSyntax.str).toList ++ [result.str])} := {String.intercalate " " (names.zip typs |>.map (fun (n, t) => s!"fun ({n.str} : {t.str}) =>") |>.toList)}"
@@ -201,12 +200,14 @@ elab "gappa" : tactic => do
   let goal ← getMainGoal
   let typ ← instantiateMVars (← goal.getType)
   let formatted ← toExternal' `Gappa_input typ
-  let res ← IO.FS.withTempFile fun handle path => do
+  let res ← try IO.FS.withTempFile fun handle path => do
     IO.FS.writeFile path s!"\{{formatted}}"
     IO.Process.run {
       cmd := (← IO.getEnv "DSLEAN_GAPPA_PATH").getD "gappa", args := #[s!"-Bcoq-lambda", path.toString],
       stdin := .piped, stdout := .piped, stderr := .piped
     }
+  catch e => throwError m!"The Gappa solver failed with the following error:\n\n{e.toMessageData}\n\nMake sure you have Gappa installed and DSLEAN_GAPPA_PATH set to the correct executable."
+
   let input ← postprocess res
 
   let proof ← fromExternal' `Gappa_output input typ
@@ -230,5 +231,5 @@ elab "gappa" : tactic => do
   replaceMainGoal [new]
 
   Lean.Elab.Tactic.evalTactic (← `(tactic| try grind ))
-  Lean.Elab.Tactic.evalTactic (← `(tactic| all_goals try Gappa_normalize ))
+  Lean.Elab.Tactic.evalTactic (← `(tactic| all_goals try gappa_normalize ))
   Lean.Elab.Tactic.evalTactic (← `(tactic| all_goals try grind ))
