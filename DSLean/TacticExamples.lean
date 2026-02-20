@@ -19,7 +19,7 @@ example (y : ℝ) :
   y ∈ Set.Icc 0 1 →
   y * y * y ∈ Set.Icc 0 1 := by
     gappa
-    expose_names
+    expose_names -- Some goals left over that automation couldn't solve by itself
     have := right (by nlinarith)
     nlinarith
 
