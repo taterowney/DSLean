@@ -89,5 +89,6 @@ elab "desolve" : tactic =>
 
     let new ← (← getMainGoal).apply term
     replaceMainGoal new
+    logInfo m!"SageMath found a solution. Applied `sage_sound` axiom to generate a proof."
 
     evalTactic (← `(tactic| try rfl; try congr <;> rfl ))
