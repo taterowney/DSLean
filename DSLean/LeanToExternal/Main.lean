@@ -142,7 +142,7 @@ instance : ToMessageData ExprLocation where
     m!"ExprLocation(path={loc.path}, e={loc.e.printdbg})"
 
 /-- Given a sub-expression, find it and run `fn`. Also telescopes all the surrounding binders so the sub-expression doesn't have hanging bvars. -/
-partial def ExprLocation.telescopeAll (loc : ExprLocation) (fn : Expr → β → Nat → TermElabM α) (input : β) (depth : Nat := 0) : TermElabM α := do
+partial def ExprLocation.telescopeAll (loc : ExprLocation) (fn : Expr → β → Nat → TermElabM α) (input : β) (depth : Nat := 0) (addBinder : β → Name → FVarId → β := fun b _ _ => b) : TermElabM α := do
   if depth > 500 then
     throwError m!"Exceeded maximum recursion depth when telescoping expression {loc.e}. There's probably an infinite loop in the DSL somewhere."
   -- logInfo m!"At expression {loc.e} ({loc.e.printdbg}), path {loc.path}"
@@ -152,34 +152,37 @@ partial def ExprLocation.telescopeAll (loc : ExprLocation) (fn : Expr → β →
     match loc.e with
     | .lam n ty _ _ =>
       if idx == 0 then
-        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
       else
         lambdaBoundedTelescope loc.e 1 fun fvar body' => do
           withLCtx' ((← getLCtx).setUserName fvar[0]!.fvarId! n) do -- Set the name of the bound variable in the local context
-            (⟨body', rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
-    | .forallE _ ty _ _ =>
+            let input := addBinder input n fvar[0]!.fvarId! -- Record the freshly-introduced fvar so it renders under the target's name
+            (⟨body', rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
+    | .forallE n ty _ _ =>
       if idx == 0 then
-        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
       else
-        forallBoundedTelescope loc.e (some 1) fun _ body =>
-          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
-    | .letE _ ty val _ _ =>
+        forallBoundedTelescope loc.e (some 1) fun fvar body => do
+          let input := addBinder input n fvar[0]!.fvarId!
+          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
+    | .letE n ty val _ _ =>
       if idx == 0 then
-        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        (⟨ty, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
       else if idx == 1 then
-        (⟨val, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        (⟨val, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
       else
-        letBoundedTelescope loc.e (some 1) fun _ body =>
-          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        letBoundedTelescope loc.e (some 1) fun fvar body => do
+          let input := addBinder input n fvar[0]!.fvarId!
+          (⟨body, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
     | .app f a =>
       if idx == 0 then
-        (⟨f, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        (⟨f, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
       else
-        (⟨a, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+        (⟨a, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
     | .mdata _ e' =>
-      (⟨e', rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+      (⟨e', rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
     | .proj _ _ struct =>
-      (⟨struct, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1)
+      (⟨struct, rest⟩ : ExprLocation).telescopeAll fn input (depth + 1) addBinder
     | _ => throwError "ExprLocation.telescopeAll: invalid path"
 
 
@@ -287,7 +290,7 @@ do
 
 
 /-- Given an expression, translate it into an external representation using the rules defined in the externalSyntax `cat`, recursively filling in "blanks". -/
-partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e : Expr) (binderRenames : Std.HashMap Name String := {}) (depth : Nat := 0) : TermElabM String := do
+partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e : Expr) (binderRenames : Std.HashMap FVarId String := {}) (depth : Nat := 0) : TermElabM String := do
   if depth > 500 then
     throwError m!"Exceeded maximum recursion depth when translating expression {e}. There's probably an infinite loop in the DSL somewhere."
 
@@ -311,7 +314,7 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
 
       if pat.stxNodeKind == (externalIdentKind (mkIdent cat)) then -- Special case: identifiers
         if e.isFVar then
-          match binderRenames.get? (← e.fvarId!.getUserName) with
+          match binderRenames.get? e.fvarId! with
           | some renamed => return renamed
           | none => return (← e.fvarId!.getUserName).toString
         else
@@ -335,16 +338,25 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
           let e_old := e
           if (← isDefEqGuarded pat_expr e) then
 
-            let processBlank := fun e' br depth' => do
+            let processBlank := fun e' (br : Std.HashMap FVarId String) depth' => do
               if ← isDefEqGuarded e_old e' then
                 throwError m!"Performed no reduction! started with {e_old}, changed to {e}, one of the blanks was {e'}"
               translateExpr cat patterns (← Core.betaReduce (← instantiateMVars e')) br (depth' + 1)
 
-            let filledMap := Std.HashMap.ofList <| newBlankMap.values.map (fun (n, loc) => (n, loc.telescopeAll processBlank (depth := depth + 1)))
+            -- Each blank is filled lazily given `nameRenames`, this level's map from a pattern binder name
+            -- (e.g. `name` in `∃ (name : _), _`) to the identifier it should render as. As `telescopeAll`
+            -- introduces fresh fvars for those binders we key them by their unique `FVarId`, so nested uses of
+            -- the same pattern no longer collide on the shared binder name.
+            let filledMap := Std.HashMap.ofList <| newBlankMap.values.map (fun (n, loc) =>
+              (n, fun (nameRenames : Std.HashMap Name String) =>
+                loc.telescopeAll processBlank binderRenames (depth := depth + 1)
+                  (addBinder := fun brs bn fv => match nameRenames.get? bn with
+                    | some renamed => brs.insert fv renamed
+                    | none => brs)))
 
 
             let mut result := ""
-            let mut binderRenames' := binderRenames
+            let mut binderRenames' : Std.HashMap Name String := {}
 
             for chunk in pat.rawSyntaxPatterns do
               match chunk with
