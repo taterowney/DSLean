@@ -1,8 +1,8 @@
 /- The `desolve` tactic, used for solving ordinary differential equations (modulo an oracle).  -/
 import DSLean.Command
 import Mathlib.Algebra.Order.Round
-import Mathlib.Data.Real.Basic
-import Mathlib.Data.Real.Sqrt
+import Mathlib.Basic.Real.Basic
+import Mathlib.Analysis.Real.Sqrt
 import Mathlib.Analysis.SpecialFunctions.Exp
 import Mathlib.Analysis.SpecialFunctions.Log.Basic
 import Mathlib.Analysis.SpecialFunctions.Trigonometric.Basic
