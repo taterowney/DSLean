@@ -302,9 +302,11 @@ partial def translateExpr (cat : Name) (patterns : Array ExternalEquivalence) (e
       pure <| some (pat, patExpr, blankMap)
     )
 
-  let pattern_contents := pattern_contents.qsort (fun (_, e, _) _ => -- TODO: put "no-op" patterns at the end too?
-    if e.isLambda || e.isForall || e.isLet then false else true
-  ) -- Try simpler patterns first; `isDefEq` can change any expression to match `lambda`s etc via reductions and whatnot
+  -- Try simpler patterns first; `isDefEq` can change any expression to match `lambda`s etc via reductions and whatnot.
+  -- A stable partition, so that the priority order of `getExternalEquivalencesForCategory` is kept within each part.
+  -- TODO: put "no-op" patterns at the end too?
+  let (simple, binders) := pattern_contents.partition (fun (_, e, _) => !(e.isLambda || e.isForall || e.isLet))
+  let pattern_contents := simple ++ binders
 
   let mut firstErr : Option Exception := none
 

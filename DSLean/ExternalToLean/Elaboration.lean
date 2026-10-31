@@ -1,6 +1,6 @@
 /- Boilerplate for setting up elaborators to recognize `Syntax` structure -/
 import DSLean.Utils.Datatypes
-import Mathlib.Data.Real.Basic -- for definition of Reals
+import Mathlib.Basic.Real.Basic -- for definition of Reals
 
 open Lean Meta Tactic Elab Term Expr Command Qq
 

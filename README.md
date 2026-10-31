@@ -24,7 +24,7 @@ docker run -it dslean
 
 ### Manual Installation
 
-This project uses Lean 4.27.0. Make sure Lean is installed, then run:
+This project uses Lean 4.35.0. Make sure Lean is installed, then run:
 
 ```bash
 lake exe cache get

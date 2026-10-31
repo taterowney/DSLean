@@ -3,8 +3,8 @@ import DSLean.Command
 import Mathlib.Data.Nat.Basic
 import Mathlib.Data.Nat.Factorial.Basic
 import Mathlib.Data.ZMod.Basic
-import Mathlib.Data.Real.Basic
-import Mathlib.Data.Complex.Basic
+import Mathlib.Basic.Real.Basic
+import Mathlib.Basic.Complex.Basic
 import Mathlib.RingTheory.Congruence.Defs
 import Mathlib.RingTheory.Ideal.Quotient.Defs
 import Mathlib.RingTheory.Ideal.Span

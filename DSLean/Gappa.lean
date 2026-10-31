@@ -1,8 +1,8 @@
 /- The `gappa` tactic, used for finding provable bounds on real-valued expressions. -/
 import DSLean.Command
 import Mathlib.Algebra.Order.Round
-import Mathlib.Data.Real.Basic
-import Mathlib.Data.Real.Sqrt
+import Mathlib.Basic.Real.Basic
+import Mathlib.Analysis.Real.Sqrt
 import Mathlib.Tactic
 
 set_option linter.unusedVariables false set_option linter.unusedTactic false set_option linter.unreachableTactic false
@@ -174,8 +174,12 @@ elab "gappa" : tactic => do
 
   let input ← postprocess res
 
-  let proof ← fromExternal' `Gappa_output input typ
-  synthesizeSyntheticMVarsNoPostponing
+  -- Info trees off: the `by ...` blocks in here come from the `Gappa_output` rules above, so linters like
+  -- `unnecessarySeqFocus` would otherwise flag them at nonsense positions in the user's file
+  let proof ← withEnableInfoTree false do
+    let proof ← fromExternal' `Gappa_output input typ
+    synthesizeSyntheticMVarsNoPostponing
+    pure proof
   let proof ← instantiateMVars proof
 
   let mvarsToGoals ← proof.traverseAllUnfolding fun e => do
